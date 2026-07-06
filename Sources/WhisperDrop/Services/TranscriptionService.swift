@@ -5,6 +5,35 @@ import WhisperKit
 actor TranscriptionService {
     private var whisperKit: WhisperKit?
 
+    private final class LiveLineCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var finalized = 0
+        private var drafts: [Int: String] = [:]
+
+        func observeDraft(_ text: String, windowID: Int) -> Int {
+            lock.withLock {
+                drafts[windowID] = text
+                return max(finalized, drafts.values.reduce(0) { $0 + Self.estimatedLines(in: $1) })
+            }
+        }
+
+        func observeFinalized(_ count: Int) -> Int {
+            lock.withLock {
+                finalized += count
+                return max(finalized, drafts.values.reduce(0) { $0 + Self.estimatedLines(in: $1) })
+            }
+        }
+
+        private static func estimatedLines(in text: String) -> Int {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return 0 }
+            let boundaries = trimmed.reduce(into: 0) { count, character in
+                if ".!?\n".contains(character) { count += 1 }
+            }
+            return max(1, boundaries)
+        }
+    }
+
     func downloadModel(progress: @escaping @Sendable (Double) -> Void) async throws {
         try FileManager.default.createDirectory(at: ModelLocator.modelsRoot, withIntermediateDirectories: true)
         let downloaded = try await WhisperKit.download(
@@ -36,10 +65,9 @@ actor TranscriptionService {
             wordTimestamps: true,
             chunkingStrategy: .vad
         )
-        var discoveredCount = 0
+        let counter = LiveLineCounter()
         engine.segmentDiscoveryCallback = { segments in
-            discoveredCount += segments.count
-            lineCount(discoveredCount)
+            lineCount(counter.observeFinalized(segments.count))
         }
         let results: [TranscriptionResult] = try await engine.transcribe(
             audioPath: file.path,
@@ -47,6 +75,7 @@ actor TranscriptionService {
             callback: { update in
                 let decoded = update.timings.inputAudioSeconds
                 if duration > 0 { progress(min(0.98, decoded / duration)) }
+                lineCount(counter.observeDraft(update.text, windowID: update.windowId))
                 return true
             }
         )
