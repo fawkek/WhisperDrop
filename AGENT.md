@@ -26,8 +26,12 @@ Do not combine these states into one dashboard. Progressive disclosure is a core
 - Tests: `swift test`
 - Codex Run action: `.codex/environments/environment.toml`
 - Generated bundle: `dist/WhisperDrop.app`
+- App icon source: `Assets/AppIcon.png`
+- App icon catalog: `Assets/Assets.xcassets/AppIcon.appiconset`
 
 Always use `script/build_and_run.sh` to review the GUI. Do not launch the raw SwiftPM executable as the normal app.
+
+The build script compiles the icon catalog with `actool`, copies `Assets.car` and `AppIcon.icns` into the bundle, and declares both `CFBundleIconName` and `CFBundleIconFile`. Keep the 1024 px source image; regenerate all catalog sizes from it when the icon changes.
 
 ## Model and privacy
 
@@ -133,3 +137,76 @@ For every change:
 5. Commit only relevant files; model weights must stay untracked/ignored.
 
 Current tests cover formatting, not visual appearance or full-model inference. Do not claim a complete media transcription was tested unless one was actually run.
+
+## Stabilization backlog before release
+
+Treat the following as required release work, not optional polish:
+
+### Transcription correctness
+
+- Run end-to-end tests on short, long, silent, noisy, multilingual, variable-frame-rate, and multi-audio-track media.
+- Compare exported SRT timestamps against playback and verify monotonic, non-overlapping cues.
+- Define cue splitting limits for maximum characters, reading speed, and line count instead of relying only on raw Whisper segments.
+- Detect and suppress repeated hallucinated phrases during silence or credits.
+- Preserve exact final cue count separately from the live draft estimate.
+- Add regression fixtures and tests for Russian, English, mixed speech, punctuation, Unicode, and hour-long timestamps.
+
+### Reliability and cancellation
+
+- Make cancellation propagate into WhisperKit inference and AVFoundation export, not only into the outer Swift task.
+- Remove every temporary audio file on success, failure, cancellation, and app termination.
+- Handle sleep/wake, low disk space, model load failure, memory pressure, corrupted media, and interrupted downloads.
+- Prevent concurrent jobs or explicitly implement a queue.
+- Persist enough job state to recover gracefully after a crash without falsely claiming completion.
+
+### Progress and user feedback
+
+- Replace the current timing approximation with progress based on processed audio position or WhisperKit windows.
+- Keep model loading, audio conversion, transcription, and finalization as distinct measurable phases.
+- Show actionable errors rather than raw framework messages.
+- Add a clear first-run model size/free-space warning and resumable download UI.
+
+### Model management
+
+- For release, store models in the user Application Support directory, never through the project resource symlink.
+- Download from the official Argmax/WhisperKit source; do not redistribute the model copied from MacWhisper.
+- Verify downloaded files with expected size and cryptographic checksum before loading.
+- Support resume, atomic installation, migration, corruption recovery, and deletion from settings.
+- Document model and WhisperKit licenses in the app and distribution package.
+
+### Sandbox and file access
+
+- Create a real Xcode macOS app target before App Store distribution.
+- Enable App Sandbox with only user-selected file read/write and outbound network access for model download/license checks.
+- Use security-scoped access correctly for dropped/opened files and release it after processing.
+- Store persistent user data only in sandbox-safe Application Support locations.
+
+### Packaging and security
+
+- Remove ad-hoc/debug signing and `com.apple.security.get-task-allow` from release artifacts.
+- Enable Hardened Runtime and sign every nested executable/framework with the correct identity.
+- For direct distribution, sign with Developer ID Application, notarize, staple, and validate with `codesign`, `spctl`, and `stapler`.
+- For Mac App Store, use Apple Distribution, provisioning, App Sandbox, App Store Connect validation, and Review.
+- Replace the local model symlink in release bundles; it is development-only.
+- Add semantic version, build number, copyright, privacy information, and update policy.
+
+### Compatibility and performance
+
+- Decide whether release support is Apple Silicon only or universal; current local output is arm64.
+- Measure model load time, real-time factor, peak memory, thermal behavior, and battery impact on supported Macs.
+- Verify Core ML behavior after OS updates and on the minimum supported macOS version.
+- Keep the UI responsive while loading and transcribing multi-hour files.
+
+### UI, accessibility, and localization
+
+- Test glass/titlebar rendering in light mode, dark mode, inactive windows, Reduce Transparency, Increase Contrast, and Reduce Motion.
+- Add VoiceOver labels, keyboard focus order, full keyboard operation, and sufficient contrast.
+- Localize all visible strings instead of leaving Russian strings in source.
+- Verify icon appearance at all required sizes in Dock, Finder, app switcher, About, and distribution storefronts.
+
+### Distribution readiness
+
+- Prepare privacy policy, support URL/email, screenshots, description, release notes, and App Store privacy answers.
+- Add automated CI for clean release builds, tests, signing checks, and artifact validation.
+- Maintain a release checklist that includes a clean-machine install and first-run model download.
+- Do not call a build stable until a notarized/App Store-style artifact has completed the same end-to-end transcription tests as development builds.

@@ -14,6 +14,7 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+ASSET_INFO_PLIST="$DIST_DIR/asset-info.plist"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
@@ -26,6 +27,12 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 ln -s "$ROOT_DIR/Models" "$APP_RESOURCES/Models"
+xcrun actool "$ROOT_DIR/Assets/Assets.xcassets" \
+  --compile "$APP_RESOURCES" \
+  --platform macosx \
+  --minimum-deployment-target "$MIN_SYSTEM_VERSION" \
+  --app-icon AppIcon \
+  --output-partial-info-plist "$ASSET_INFO_PLIST"
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -35,6 +42,8 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleName</key><string>$APP_NAME</string>
   <key>CFBundleDisplayName</key><string>WhisperDrop</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -56,4 +65,3 @@ case "$MODE" in
   --verify|verify) open_app; sleep 1; pgrep -x "$APP_NAME" >/dev/null ;;
   *) echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2; exit 2 ;;
 esac
-
