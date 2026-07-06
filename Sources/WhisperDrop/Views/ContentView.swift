@@ -6,7 +6,9 @@ struct ContentView: View {
     @State private var isTargeted = false
 
     var body: some View {
-        Group {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
+
             switch store.phase {
             case .needsModel, .downloading:
                 ModelSetupView(store: store)
@@ -20,10 +22,8 @@ struct ContentView: View {
                 FailureView(message: message, retry: store.reset)
             }
         }
-        .transition(.opacity.combined(with: .scale(scale: 0.98)))
-        .animation(.easeInOut(duration: 0.25), value: store.phase)
-        .frame(minWidth: 520, idealWidth: 560, minHeight: 430, idealHeight: 470)
-        .background(.regularMaterial)
+        .animation(.easeOut(duration: 0.25), value: store.phase)
+        .frame(minWidth: 500, idealWidth: 520, minHeight: 370, idealHeight: 400)
         .onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: store.accept)
     }
 }
@@ -32,23 +32,33 @@ private struct ModelSetupView: View {
     let store: AppStore
 
     var body: some View {
-        VStack(spacing: 22) {
-            ProgressRing(progress: store.progress, symbol: "arrow.down.circle")
-            Text(store.phase == .downloading ? "Загрузка модели" : "Нужна модель распознавания")
-                .font(.title2.weight(.semibold))
-            Text("Модель хранится локально. Видео и аудио не отправляются в интернет.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        StateLayout {
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(Color.accentColor)
+
+            VStack(spacing: 6) {
+                Text(store.phase == .downloading ? "Загрузка модели" : "Установите модель")
+                    .font(.system(size: 17, weight: .semibold))
+                Text("Large v3 Turbo работает полностью на этом Mac")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+
             if store.phase == .downloading {
-                ProgressView(value: store.progress).frame(width: 300)
+                VStack(spacing: 8) {
+                    ProgressView(value: store.progress).frame(width: 280)
+                    Text("\(Int(store.progress * 100))%")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
                 Button("Отменить", action: store.cancel)
             } else {
-                Button("Скачать модель Large v3 Turbo", action: store.downloadModel)
+                Button("Скачать модель", systemImage: "arrow.down", action: store.downloadModel)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
             }
         }
-        .padding(44)
     }
 }
 
@@ -58,27 +68,49 @@ private struct FileDropView: View {
 
     var body: some View {
         Button(action: store.chooseFile) {
-            VStack(spacing: 18) {
-                Image(systemName: "arrow.down.doc.fill")
-                    .font(.system(size: 48, weight: .light))
-                    .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary)
+            VStack(spacing: 24) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(isTargeted ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.08))
+                        .frame(width: 72, height: 72)
+                    Image(systemName: isTargeted ? "arrow.down" : "film.stack")
+                        .font(.system(size: 30, weight: .light))
+                        .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+
                 VStack(spacing: 6) {
-                    Text("Перетащите видео сюда").font(.title2.weight(.semibold))
-                    Text("или нажмите, чтобы выбрать видео или аудио")
+                    Text(isTargeted ? "Отпустите файл" : "Перетащите видео или аудио")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text("Файл останется на вашем Mac")
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
+
+                HStack(spacing: 8) {
+                    Text("Выбрать файл")
+                        .font(.system(size: 13, weight: .medium))
+                    ShortcutHint(keys: "⌘O")
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 28)
+                .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(34)
-        .background(isTargeted ? Color.accentColor.opacity(0.10) : .clear)
+        .padding(20)
+        .background(isTargeted ? Color.accentColor.opacity(0.035) : .clear)
         .overlay {
-            RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(isTargeted ? Color.accentColor : .secondary.opacity(0.32), style: StrokeStyle(lineWidth: 2, dash: [9]))
-                .padding(34)
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(
+                    isTargeted ? Color.accentColor : Color.secondary.opacity(0.24),
+                    style: StrokeStyle(lineWidth: isTargeted ? 1.5 : 1, dash: [7, 5])
+                )
+                .padding(20)
         }
+        .animation(.easeOut(duration: 0.15), value: isTargeted)
     }
 }
 
@@ -86,19 +118,42 @@ private struct TranscriptionFinishedView: View {
     let store: AppStore
 
     var body: some View {
-        VStack(spacing: 20) {
-            ProgressRing(progress: 1, symbol: "checkmark")
-            Text("Субтитры готовы").font(.title2.weight(.semibold))
-            Text("\(store.cues.count) \(lineWord(store.cues.count))")
+        StateLayout {
+            ZStack {
+                Circle().fill(Color.green.opacity(0.12)).frame(width: 72, height: 72)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(.green)
+            }
+
+            VStack(spacing: 6) {
+                Text("Субтитры готовы").font(.system(size: 17, weight: .semibold))
+                Text(store.selectedFile?.lastPathComponent ?? "")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Label("\(store.cues.count) \(lineWord(store.cues.count))  •  SRT, UTF‑8", systemImage: "captions.bubble")
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-            HStack {
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+
+            HStack(spacing: 8) {
                 Button("Другой файл", action: store.reset)
-                Button("Сохранить субтитры…", action: store.save)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut("s", modifiers: .command)
+                Button(action: store.save) {
+                    HStack(spacing: 8) {
+                        Text("Сохранить…")
+                        ShortcutHint(keys: "⌘S", inverted: true)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut("s", modifiers: .command)
             }
         }
-        .padding(44)
     }
 }
 
@@ -107,13 +162,45 @@ private struct FailureView: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 44)).foregroundStyle(.orange)
-            Text("Не удалось завершить").font(.title2.weight(.semibold))
-            Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(4)
+        StateLayout {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 38, weight: .light))
+                .foregroundStyle(.orange)
+            VStack(spacing: 6) {
+                Text("Не удалось создать субтитры").font(.system(size: 17, weight: .semibold))
+                Text(message)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+            }
             Button("Вернуться", action: retry).buttonStyle(.borderedProminent)
         }
-        .padding(44)
+    }
+}
+
+private struct StateLayout<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 24) { content }
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity.combined(with: .scale(scale: 0.985)))
+    }
+}
+
+struct ShortcutHint: View {
+    let keys: String
+    var inverted = false
+
+    var body: some View {
+        Text(keys)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(inverted ? AnyShapeStyle(.white.opacity(0.75)) : AnyShapeStyle(.secondary))
+            .padding(.horizontal, 5)
+            .frame(height: 18)
+            .background(inverted ? AnyShapeStyle(.white.opacity(0.13)) : AnyShapeStyle(.quaternary.opacity(0.7)), in: RoundedRectangle(cornerRadius: 4))
     }
 }
 
