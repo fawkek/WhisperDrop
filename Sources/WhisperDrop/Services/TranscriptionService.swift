@@ -23,7 +23,8 @@ actor TranscriptionService {
     func transcribe(
         file: URL,
         duration: TimeInterval,
-        progress: @escaping @Sendable (Double) -> Void
+        progress: @escaping @Sendable (Double) -> Void,
+        lineCount: @escaping @Sendable (Int) -> Void
     ) async throws -> [SubtitleCue] {
         let engine = try await engine()
         let options = DecodingOptions(
@@ -35,7 +36,11 @@ actor TranscriptionService {
             wordTimestamps: true,
             chunkingStrategy: .vad
         )
-        var discovered: [TranscriptionSegment] = []
+        var discoveredCount = 0
+        engine.segmentDiscoveryCallback = { segments in
+            discoveredCount += segments.count
+            lineCount(discoveredCount)
+        }
         let results: [TranscriptionResult] = try await engine.transcribe(
             audioPath: file.path,
             decodeOptions: options,
@@ -45,6 +50,10 @@ actor TranscriptionService {
                 return true
             }
         )
+        engine.segmentDiscoveryCallback = nil
+        let finalCount = results.reduce(0) { $0 + $1.segments.count }
+        lineCount(finalCount)
+        var discovered: [TranscriptionSegment] = []
         for result in results { discovered.append(contentsOf: result.segments) }
         progress(1)
         return discovered
@@ -69,4 +78,3 @@ actor TranscriptionService {
         return created
     }
 }
-

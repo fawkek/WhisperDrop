@@ -6,113 +6,123 @@ struct ContentView: View {
     @State private var isTargeted = false
 
     var body: some View {
-        VStack(spacing: 22) {
-            Spacer(minLength: 12)
-            ProgressRing(progress: ringProgress, symbol: symbol)
-
-            VStack(spacing: 6) {
-                Text(title).font(.title2.weight(.semibold))
-                Text(detail)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
+        Group {
+            switch store.phase {
+            case .needsModel, .downloading:
+                ModelSetupView(store: store)
+            case .ready:
+                FileDropView(store: store, isTargeted: isTargeted)
+            case .preparing, .transcribing:
+                TranscribingView(store: store)
+            case .finished:
+                TranscriptionFinishedView(store: store)
+            case let .failed(message):
+                FailureView(message: message, retry: store.reset)
             }
-
-            if store.phase == .ready || isFailure {
-                dropZone
-            } else if store.isWorking {
-                ProgressView(value: store.progress)
-                    .progressViewStyle(.linear)
-                    .frame(maxWidth: 330)
-                Text("\(Int(store.progress * 100))%")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-
-            actions
-            Spacer(minLength: 12)
         }
-        .padding(34)
-        .frame(minWidth: 520, idealWidth: 560, minHeight: 500, idealHeight: 540)
+        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        .animation(.easeInOut(duration: 0.25), value: store.phase)
+        .frame(minWidth: 520, idealWidth: 560, minHeight: 430, idealHeight: 470)
         .background(.regularMaterial)
         .onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: store.accept)
     }
+}
 
-    private var dropZone: some View {
-        Button(action: store.chooseFile) {
-            VStack(spacing: 8) {
-                Image(systemName: "arrow.down.doc").font(.title2)
-                Text("Перетащите видео или аудио сюда")
-                Text("или нажмите, чтобы выбрать файл").font(.caption).foregroundStyle(.secondary)
+private struct ModelSetupView: View {
+    let store: AppStore
+
+    var body: some View {
+        VStack(spacing: 22) {
+            ProgressRing(progress: store.progress, symbol: "arrow.down.circle")
+            Text(store.phase == .downloading ? "Загрузка модели" : "Нужна модель распознавания")
+                .font(.title2.weight(.semibold))
+            Text("Модель хранится локально. Видео и аудио не отправляются в интернет.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if store.phase == .downloading {
+                ProgressView(value: store.progress).frame(width: 300)
+                Button("Отменить", action: store.cancel)
+            } else {
+                Button("Скачать модель Large v3 Turbo", action: store.downloadModel)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
             }
-            .frame(maxWidth: .infinity, minHeight: 112)
+        }
+        .padding(44)
+    }
+}
+
+private struct FileDropView: View {
+    let store: AppStore
+    let isTargeted: Bool
+
+    var body: some View {
+        Button(action: store.chooseFile) {
+            VStack(spacing: 18) {
+                Image(systemName: "arrow.down.doc.fill")
+                    .font(.system(size: 48, weight: .light))
+                    .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary)
+                VStack(spacing: 6) {
+                    Text("Перетащите видео сюда").font(.title2.weight(.semibold))
+                    Text("или нажмите, чтобы выбрать видео или аудио")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(isTargeted ? Color.accentColor.opacity(0.13) : Color.primary.opacity(0.035), in: .rect(cornerRadius: 15))
-        .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(isTargeted ? Color.accentColor : .secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [7])))
+        .padding(34)
+        .background(isTargeted ? Color.accentColor.opacity(0.10) : .clear)
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(isTargeted ? Color.accentColor : .secondary.opacity(0.32), style: StrokeStyle(lineWidth: 2, dash: [9]))
+                .padding(34)
+        }
     }
+}
 
-    @ViewBuilder private var actions: some View {
-        switch store.phase {
-        case .needsModel:
-            Button("Скачать модель Large v3 Turbo", action: store.downloadModel).buttonStyle(.borderedProminent).controlSize(.large)
-        case .downloading, .preparing, .transcribing:
-            Button("Отменить", action: store.cancel).keyboardShortcut(.cancelAction)
-        case .finished:
+private struct TranscriptionFinishedView: View {
+    let store: AppStore
+
+    var body: some View {
+        VStack(spacing: 20) {
+            ProgressRing(progress: 1, symbol: "checkmark")
+            Text("Субтитры готовы").font(.title2.weight(.semibold))
+            Text("\(store.cues.count) \(lineWord(store.cues.count))")
+                .foregroundStyle(.secondary)
             HStack {
                 Button("Другой файл", action: store.reset)
-                Button("Сохранить субтитры…", action: store.save).buttonStyle(.borderedProminent).keyboardShortcut("s", modifiers: .command)
+                Button("Сохранить субтитры…", action: store.save)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut("s", modifiers: .command)
             }
-        case .failed:
-            Button("Попробовать снова", action: store.reset).buttonStyle(.borderedProminent)
-        case .ready:
-            EmptyView()
         }
+        .padding(44)
     }
+}
 
-    private var ringProgress: Double {
-        store.phase == .ready || store.phase == .needsModel ? 0 : store.progress
-    }
+private struct FailureView: View {
+    let message: String
+    let retry: () -> Void
 
-    private var symbol: String {
-        switch store.phase {
-        case .needsModel, .downloading: "arrow.down.circle"
-        case .ready: "waveform"
-        case .preparing: "film"
-        case .transcribing: "captions.bubble"
-        case .finished: "checkmark"
-        case .failed: "exclamationmark"
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 44)).foregroundStyle(.orange)
+            Text("Не удалось завершить").font(.title2.weight(.semibold))
+            Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(4)
+            Button("Вернуться", action: retry).buttonStyle(.borderedProminent)
         }
+        .padding(44)
     }
+}
 
-    private var title: String {
-        switch store.phase {
-        case .needsModel: "Нужна модель распознавания"
-        case .downloading: "Загрузка модели"
-        case .ready: "Создать субтитры"
-        case .preparing: "Подготовка аудио"
-        case .transcribing: "Распознавание"
-        case .finished: "Субтитры готовы"
-        case .failed: "Не удалось завершить"
-        }
-    }
-
-    private var detail: String {
-        switch store.phase {
-        case .needsModel: "Модель хранится локально в папке приложения. Файлы не отправляются в интернет."
-        case .downloading: "Large v3 Turbo загружается один раз"
-        case .ready: "Локально, без облака"
-        case .preparing: store.selectedFile?.lastPathComponent ?? "Извлекаем звуковую дорожку"
-        case .transcribing: store.selectedFile?.lastPathComponent ?? "Определяем язык автоматически"
-        case .finished: "\(store.cues.count) реплик с точными тайм-кодами"
-        case let .failed(message): message
-        }
-    }
-
-    private var isFailure: Bool {
-        if case .failed = store.phase { return true }
-        return false
-    }
+private func lineWord(_ count: Int) -> String {
+    let lastTwo = count % 100
+    let last = count % 10
+    if (11...14).contains(lastTwo) { return "строк" }
+    if last == 1 { return "строка" }
+    if (2...4).contains(last) { return "строки" }
+    return "строк"
 }
 
