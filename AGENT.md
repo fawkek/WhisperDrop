@@ -116,6 +116,8 @@ The title bar and content must look like one continuous glass surface with no da
 - non-opaque, clear window/content backgrounds
 - background window dragging enabled
 
+Some macOS versions draw an additional `NSTitlebarView` background above the theme-frame material. To prevent a dark strip behind the traffic lights, the configurator also installs the same material directly in `standardWindowButton(.closeButton).superview`, positioned below the buttons. Keep both identifiers (`WhisperDrop.WindowGlass` and `WhisperDrop.TitlebarGlass`) to avoid duplicate layers when SwiftUI recreates the representable.
+
 Do not put a second material inside the SwiftUI root view. It creates a visible join because SwiftUI content does not own the title-bar area. Do not re-add `.windowToolbarStyle(.unifiedCompact)` or assign a toolbar without checking the top strip: the unified toolbar adds its own material layer and creates a color mismatch against the main glass panel.
 
 Keep the AppKit bridge limited to window chrome. Do not migrate SwiftUI state or screens into AppKit.

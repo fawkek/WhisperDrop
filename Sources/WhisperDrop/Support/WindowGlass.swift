@@ -3,6 +3,7 @@ import SwiftUI
 
 struct GlassWindowConfigurator: NSViewRepresentable {
     private static let backgroundIdentifier = NSUserInterfaceItemIdentifier("WhisperDrop.WindowGlass")
+    private static let titlebarIdentifier = NSUserInterfaceItemIdentifier("WhisperDrop.TitlebarGlass")
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
@@ -30,22 +31,40 @@ struct GlassWindowConfigurator: NSViewRepresentable {
 
             guard let frameView = window.contentView?.superview else { return }
             if frameView.subviews.first(where: { $0.identifier == Self.backgroundIdentifier }) == nil {
-                let glass = NSVisualEffectView(frame: .zero)
-                glass.identifier = Self.backgroundIdentifier
-                glass.material = .underWindowBackground
-                glass.blendingMode = .behindWindow
-                glass.state = .followsWindowActiveState
-                glass.translatesAutoresizingMaskIntoConstraints = false
+                let glass = makeGlass(identifier: Self.backgroundIdentifier)
                 frameView.addSubview(glass, positioned: .below, relativeTo: nil)
-                NSLayoutConstraint.activate([
-                    glass.leadingAnchor.constraint(equalTo: frameView.leadingAnchor),
-                    glass.trailingAnchor.constraint(equalTo: frameView.trailingAnchor),
-                    glass.topAnchor.constraint(equalTo: frameView.topAnchor),
-                    glass.bottomAnchor.constraint(equalTo: frameView.bottomAnchor),
-                ])
+                pin(glass, to: frameView)
+            }
+
+            if let closeButton = window.standardWindowButton(.closeButton),
+               let titlebarView = closeButton.superview,
+               titlebarView.subviews.first(where: { $0.identifier == Self.titlebarIdentifier }) == nil
+            {
+                let titlebarGlass = makeGlass(identifier: Self.titlebarIdentifier)
+                titlebarView.addSubview(titlebarGlass, positioned: .below, relativeTo: closeButton)
+                pin(titlebarGlass, to: titlebarView)
             }
             frameView.needsLayout = true
             frameView.needsDisplay = true
         }
+    }
+
+    private func makeGlass(identifier: NSUserInterfaceItemIdentifier) -> NSVisualEffectView {
+        let glass = NSVisualEffectView(frame: .zero)
+        glass.identifier = identifier
+        glass.material = .underWindowBackground
+        glass.blendingMode = .behindWindow
+        glass.state = .followsWindowActiveState
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        return glass
+    }
+
+    private func pin(_ view: NSView, to container: NSView) {
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
     }
 }
