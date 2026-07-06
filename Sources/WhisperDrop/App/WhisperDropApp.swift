@@ -18,7 +18,6 @@ struct WhisperDropApp: App {
             ContentView(store: store)
         }
         .windowResizability(.contentSize)
-        .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Открыть файл…", action: store.chooseFile)

@@ -32,11 +32,15 @@ struct GlassWindowConfigurator: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let window = view.window else { return }
             window.styleMask.insert(.fullSizeContentView)
+            window.toolbar = nil
+            window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             window.titlebarSeparatorStyle = .none
             window.isOpaque = false
             window.backgroundColor = .clear
+            window.isMovableByWindowBackground = true
+            window.contentView?.wantsLayer = true
+            window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
         }
     }
 }
-
