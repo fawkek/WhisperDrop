@@ -1,23 +1,9 @@
 import AppKit
 import SwiftUI
 
-struct WindowGlassBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .underWindowBackground
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = .underWindowBackground
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-    }
-}
-
 struct GlassWindowConfigurator: NSViewRepresentable {
+    private static let backgroundIdentifier = NSUserInterfaceItemIdentifier("WhisperDrop.WindowGlass")
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         configureWhenAttached(view)
@@ -41,6 +27,25 @@ struct GlassWindowConfigurator: NSViewRepresentable {
             window.isMovableByWindowBackground = true
             window.contentView?.wantsLayer = true
             window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+
+            guard let frameView = window.contentView?.superview else { return }
+            if frameView.subviews.first(where: { $0.identifier == Self.backgroundIdentifier }) == nil {
+                let glass = NSVisualEffectView(frame: .zero)
+                glass.identifier = Self.backgroundIdentifier
+                glass.material = .underWindowBackground
+                glass.blendingMode = .behindWindow
+                glass.state = .followsWindowActiveState
+                glass.translatesAutoresizingMaskIntoConstraints = false
+                frameView.addSubview(glass, positioned: .below, relativeTo: nil)
+                NSLayoutConstraint.activate([
+                    glass.leadingAnchor.constraint(equalTo: frameView.leadingAnchor),
+                    glass.trailingAnchor.constraint(equalTo: frameView.trailingAnchor),
+                    glass.topAnchor.constraint(equalTo: frameView.topAnchor),
+                    glass.bottomAnchor.constraint(equalTo: frameView.bottomAnchor),
+                ])
+            }
+            frameView.needsLayout = true
+            frameView.needsDisplay = true
         }
     }
 }

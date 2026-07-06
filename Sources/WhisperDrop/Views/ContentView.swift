@@ -7,9 +7,6 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            WindowGlassBackground()
-                .ignoresSafeArea()
-
             switch store.phase {
             case .needsModel, .downloading:
                 ModelSetupView(store: store)

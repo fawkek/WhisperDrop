@@ -99,11 +99,12 @@ The live counter during decoding is an estimate derived from draft text because 
 
 The title bar and content must look like one continuous glass surface with no dark top strip or separator.
 
-`WindowGlassBackground` uses `NSVisualEffectView` with:
+`GlassWindowConfigurator` installs one `NSVisualEffectView` directly into the AppKit theme frame, below both the SwiftUI content and system traffic lights, with:
 
 - material `.underWindowBackground`
 - blending mode `.behindWindow`
 - state `.followsWindowActiveState`
+- constraints to all four theme-frame edges
 
 `GlassWindowConfigurator` configures the backing `NSWindow` with:
 
@@ -115,7 +116,7 @@ The title bar and content must look like one continuous glass surface with no da
 - non-opaque, clear window/content backgrounds
 - background window dragging enabled
 
-Do not re-add `.windowToolbarStyle(.unifiedCompact)` or assign a toolbar without checking the top strip: the unified toolbar adds its own material layer and creates a color mismatch against the main glass panel.
+Do not put a second material inside the SwiftUI root view. It creates a visible join because SwiftUI content does not own the title-bar area. Do not re-add `.windowToolbarStyle(.unifiedCompact)` or assign a toolbar without checking the top strip: the unified toolbar adds its own material layer and creates a color mismatch against the main glass panel.
 
 Keep the AppKit bridge limited to window chrome. Do not migrate SwiftUI state or screens into AppKit.
 
