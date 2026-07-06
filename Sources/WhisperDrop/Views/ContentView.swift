@@ -7,7 +7,8 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
+            WindowGlassBackground()
+                .ignoresSafeArea()
 
             switch store.phase {
             case .needsModel, .downloading:
@@ -24,6 +25,7 @@ struct ContentView: View {
         }
         .animation(.easeOut(duration: 0.25), value: store.phase)
         .frame(minWidth: 500, idealWidth: 520, minHeight: 370, idealHeight: 400)
+        .background(GlassWindowConfigurator().frame(width: 0, height: 0))
         .onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: store.accept)
     }
 }
@@ -212,4 +214,3 @@ private func lineWord(_ count: Int) -> String {
     if (2...4).contains(last) { return "строки" }
     return "строк"
 }
-
