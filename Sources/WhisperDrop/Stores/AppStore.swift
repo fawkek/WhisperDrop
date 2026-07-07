@@ -21,7 +21,6 @@ final class AppStore {
     var progress = 0.0
     var selectedFile: URL?
     var cues: [SubtitleCue] = []
-    var liveLineCount = 0
     private let service = TranscriptionService()
     private var workTask: Task<Void, Never>?
 
@@ -56,12 +55,10 @@ final class AppStore {
         workTask?.cancel()
         selectedFile = url
         cues = []
-        liveLineCount = 0
         progress = 0
         phase = .preparing
         workTask = Task {
             do {
-                let duration = try await AVURLAsset(url: url).load(.duration).seconds
                 let audio = try await AudioExtractor.prepare(url) { value in
                     Task { @MainActor in self.progress = value * 0.08 }
                 }
@@ -69,12 +66,8 @@ final class AppStore {
                 phase = .transcribing
                 let result = try await service.transcribe(
                     file: audio,
-                    duration: duration,
                     progress: { value in
                         Task { @MainActor in self.progress = 0.08 + value * 0.92 }
-                    },
-                    lineCount: { count in
-                        Task { @MainActor in self.liveLineCount = count }
                     }
                 )
                 cues = result
@@ -127,7 +120,6 @@ final class AppStore {
     func reset() {
         selectedFile = nil
         cues = []
-        liveLineCount = 0
         progress = 0
         phase = .ready
     }

@@ -3,7 +3,7 @@ import Foundation
 enum SRTFormatter {
     static func render(_ cues: [SubtitleCue]) -> String {
         cues.enumerated().map { index, cue in
-            "\(index + 1)\n\(timestamp(cue.start)) --> \(timestamp(cue.end))\n\(cue.text.trimmingCharacters(in: .whitespacesAndNewlines))"
+            "\(index + 1)\n\(timestamp(cue.start)) --> \(timestamp(cue.end))\n\(WhisperTextSanitizer.clean(cue.text))"
         }.joined(separator: "\n\n") + "\n"
     }
 
@@ -16,4 +16,3 @@ enum SRTFormatter {
         return String(format: "%02d:%02d:%02d,%03d", hours, minutes, secs, millis)
     }
 }
-

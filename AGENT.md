@@ -9,7 +9,7 @@ WhisperDrop is a focused native macOS utility that creates `.srt` subtitles loca
 1. If the model is absent, offer to download it.
 2. Show only the file drop/select state.
 3. After accepting a file, remove the drop field completely.
-4. Show transcription animation, progress, file name, and a live subtitle-line estimate.
+4. Show transcription animation, progress, and file name. Do not show a live line count.
 5. When complete, show the exact cue count and allow saving UTF-8 SRT.
 
 Do not combine these states into one dashboard. Progressive disclosure is a core requirement.
@@ -53,7 +53,7 @@ The build script compiles the icon catalog with `actool`, copies `Assets.car` an
 - `Models/SubtitleCue.swift`: final subtitle cue value type.
 - `Stores/AppStore.swift`: `@MainActor @Observable` UI state and workflow orchestration.
 - `Services/AudioExtractor.swift`: converts unsupported video containers to temporary M4A with AVFoundation.
-- `Services/TranscriptionService.swift`: WhisperKit setup, transcription, download, progress, and live line callbacks.
+- `Services/TranscriptionService.swift`: WhisperKit setup, transcription, download, and progress callbacks.
 - `Services/ModelLocator.swift`: model/tokenizer locations.
 - `Support/SRTFormatter.swift`: deterministic UTF-8 SRT rendering and timestamp formatting.
 - `Support/WindowGlass.swift`: narrow AppKit bridge for one continuous translucent window material.
@@ -82,10 +82,13 @@ Only one phase surface should be visible at a time. Dropping another file while 
 - Format: SubRip `.srt`.
 - Timestamp format: `HH:MM:SS,mmm`.
 - Cues are filtered for non-empty text and positive duration, then sorted by start time.
+- Whisper control and timestamp tokens in the form `<|...|>` must be stripped from cue text before display or SRT export.
 - WhisperKit segment timestamps are converted from seconds to SRT milliseconds.
 - `SRTFormatterTests` verifies timestamp and Unicode behavior.
 
-The live counter during decoding is an estimate derived from draft text because WhisperKit only finalizes segments after processing a decoding window. At completion, it is replaced with the exact final segment count.
+Do not show a live subtitle-line counter during decoding: WhisperKit finalizes segments in batches, so an intermediate count can remain at zero or be misleading. Show the exact final cue count only on the completed state.
+
+Transcription progress must use `WhisperKit.progress.fractionCompleted`. `TranscriptionProgress.timings.inputAudioSeconds` belongs to decoder timing statistics and is not the current playback position.
 
 ## UI and design invariants
 

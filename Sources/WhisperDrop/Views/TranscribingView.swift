@@ -13,10 +13,9 @@ struct TranscribingView: View {
             VStack(spacing: 5) {
                 Text(store.phase == .preparing ? "Подготовка аудио…" : "Создание субтитров…")
                     .font(.system(size: 15, weight: .semibold))
-                Text("\(store.liveLineCount) \(lineLabel)")
+                Text("Количество строк появится после завершения")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
             }
 
             VStack(spacing: 8) {
@@ -61,15 +60,6 @@ struct TranscribingView: View {
         .frame(height: 32)
     }
 
-    private var lineLabel: String {
-        let count = store.liveLineCount
-        let lastTwo = count % 100
-        let last = count % 10
-        if (11...14).contains(lastTwo) { return "готовых строк" }
-        if last == 1 { return "готовая строка" }
-        if (2...4).contains(last) { return "готовые строки" }
-        return "готовых строк"
-    }
 }
 
 private struct TranscriptionAnimation: View {
@@ -100,4 +90,3 @@ private struct TranscriptionAnimation: View {
         .accessibilityValue("\(Int(progress * 100)) процентов")
     }
 }
-

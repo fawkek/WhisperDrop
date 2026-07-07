@@ -12,5 +12,16 @@ final class SRTFormatterTests: XCTestCase {
     func testClampsNegativeTimestamp() {
         XCTAssertEqual(SRTFormatter.timestamp(-1), "00:00:00,000")
     }
-}
 
+    func testRemovesWhisperControlAndTimestampTokens() {
+        let output = SRTFormatter.render([
+            SubtitleCue(
+                start: 0,
+                end: 2.34,
+                text: "<|startoftranscript|><|ru|><|transcribe|><|0.00|> Привет!<|2.34|><|endoftext|>"
+            )
+        ])
+
+        XCTAssertEqual(output, "1\n00:00:00,000 --> 00:00:02,340\nПривет!\n")
+    }
+}
