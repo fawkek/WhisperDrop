@@ -3,6 +3,7 @@
 - About shows the purpose, version, build, embedded Git commit, and `https://x.com/fawkek_obj`; GitHub remains disabled until its URL is supplied.
 - Release metadata defaults to version `0.1.0`, build `1`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
 - `./script/build_and_run.sh --package` builds Release, signs with `DEVELOPER_ID_APPLICATION` when set (otherwise ad hoc), verifies the signature, and creates `dist/WhisperDrop-<version>-macOS.zip`.
+- When both `DEVELOPER_ID_APPLICATION` and `NOTARY_PROFILE` are set, packaging submits the ZIP with `notarytool`, staples and validates the app, then recreates the final ZIP.
 
 This file is the durable implementation context for future work on WhisperDrop. Read it before changing the project.
 

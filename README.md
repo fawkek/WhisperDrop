@@ -29,6 +29,14 @@ DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID)" ./script
 
 Without it, the ZIP is ad hoc signed and suitable only for local testing.
 
+To sign, notarize, staple, and recreate the final ZIP, first store App Store Connect credentials with `xcrun notarytool store-credentials`, then run:
+
+```bash
+DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID)" \
+NOTARY_PROFILE="WhisperDrop-Notary" \
+./script/build_and_run.sh --package
+```
+
 ## Links
 
 - X/Twitter: [@fawkek_obj](https://x.com/fawkek_obj)

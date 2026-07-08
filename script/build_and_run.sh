@@ -80,6 +80,15 @@ package_app() {
   local archive="$DIST_DIR/$APP_NAME-$APP_VERSION-macOS.zip"
   rm -f "$archive"
   ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$archive"
+  if [[ -n "$identity" && -n "${NOTARY_PROFILE:-}" ]]; then
+    xcrun notarytool submit "$archive" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun stapler staple "$APP_BUNDLE"
+    xcrun stapler validate "$APP_BUNDLE"
+    rm -f "$archive"
+    ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$archive"
+  elif [[ -n "$identity" ]]; then
+    echo "warning: signed but not notarized; set NOTARY_PROFILE to notarize" >&2
+  fi
   echo "$archive"
 }
 
