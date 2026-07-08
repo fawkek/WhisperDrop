@@ -5,18 +5,12 @@ import WhisperKit
 actor TranscriptionService {
     private var whisperKit: WhisperKit?
 
-    func downloadModel(progress: @escaping @Sendable (Double) -> Void) async throws {
-        try FileManager.default.createDirectory(at: ModelLocator.modelsRoot, withIntermediateDirectories: true)
-        let downloaded = try await WhisperKit.download(
-            variant: "large-v3-v20240930_626MB",
-            downloadBase: ModelLocator.modelsRoot,
-            progressCallback: { value in progress(value.fractionCompleted) }
-        )
-        if downloaded.standardizedFileURL != ModelLocator.modelFolder.standardizedFileURL {
-            if FileManager.default.fileExists(atPath: ModelLocator.modelFolder.path) {
-                try FileManager.default.removeItem(at: ModelLocator.modelFolder)
-            }
-            try FileManager.default.copyItem(at: downloaded, to: ModelLocator.modelFolder)
+    func downloadModel(progress: @escaping @Sendable (ModelDownloadProgress) -> Void) async throws {
+        try await ModelDownloader.download { downloadedBytes, totalBytes in
+            progress(ModelDownloadProgress(
+                downloadedBytes: downloadedBytes,
+                totalBytes: totalBytes
+            ))
         }
     }
 

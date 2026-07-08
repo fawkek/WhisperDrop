@@ -32,33 +32,84 @@ private struct ModelSetupView: View {
 
     var body: some View {
         StateLayout {
-            Image(systemName: "arrow.down.circle")
-                .font(.system(size: 40, weight: .light))
-                .foregroundStyle(Color.accentColor)
+            VStack(spacing: 20) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 40, weight: .light))
+                    .foregroundStyle(Color.accentColor)
 
-            VStack(spacing: 6) {
-                Text(store.phase == .downloading ? "Загрузка модели" : "Установите модель")
-                    .font(.system(size: 17, weight: .semibold))
-                Text("Large v3 Turbo работает полностью на этом Mac")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-            }
+                VStack(spacing: 6) {
+                    Text(store.phase == .downloading
+                         ? AppText.pick("Загрузка модели", "Downloading model")
+                         : AppText.pick("Модель распознавания", "Speech recognition model"))
+                        .font(.system(size: 17, weight: .semibold))
 
-            if store.phase == .downloading {
-                VStack(spacing: 8) {
-                    ProgressView(value: store.progress).frame(width: 280)
-                    Text("\(Int(store.progress * 100))%")
+                    Text(ModelLocator.displayName)
+                        .font(.system(size: 13, weight: .medium))
+
+                    Text(ModelLocator.description)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 340)
+                }
+
+                if store.phase == .downloading {
+                    VStack(spacing: 10) {
+                        ProgressView(value: store.progress).frame(width: 280)
+                        HStack {
+                            Text(AppText.pick(
+                                "Загружено \(byteCount(store.downloadedModelBytes)) из \(byteCount(store.modelDownloadTotalBytes))",
+                                "Downloaded \(byteCount(store.downloadedModelBytes)) of \(byteCount(store.modelDownloadTotalBytes))"
+                            ))
+                            Spacer()
+                            Text("\(Int(store.progress * 100))%")
+                        }
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.tertiary)
+                        .frame(width: 280)
+                        .contentTransition(.numericText())
+                    }
+                    Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+                } else {
+                    Label(byteCount(ModelLocator.expectedDownloadBytes), systemImage: "internaldrive")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+
+                    if let error = store.modelDownloadError {
+                        Label {
+                            Text(error)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                        }
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: 320)
+                    }
+
+                    Button(
+                        store.modelDownloadError == nil
+                            ? AppText.pick("Скачать модель", "Download model")
+                            : AppText.pick("Повторить загрузку", "Retry download"),
+                        systemImage: "arrow.down",
+                        action: store.downloadModel
+                    )
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
                 }
-                Button("Отменить", action: store.cancel)
-            } else {
-                Button("Скачать модель", systemImage: "arrow.down", action: store.downloadModel)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
             }
         }
     }
+
+    private func byteCount(_ bytes: Int64) -> String {
+        if bytes == 0 { return "0 MB" }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
 }
 
 private struct FileDropView: View {
@@ -79,15 +130,17 @@ private struct FileDropView: View {
                 }
 
                 VStack(spacing: 6) {
-                    Text(isTargeted ? "Отпустите файл" : "Перетащите видео или аудио")
+                    Text(isTargeted
+                         ? AppText.pick("Отпустите файл", "Drop the file")
+                         : AppText.pick("Перетащите видео или аудио", "Drop video or audio"))
                         .font(.system(size: 17, weight: .semibold))
-                    Text("Файл останется на вашем Mac")
+                    Text(AppText.pick("Файл останется на вашем Mac", "The file stays on your Mac"))
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
 
                 HStack(spacing: 8) {
-                    Text("Выбрать файл")
+                    Text(AppText.pick("Выбрать файл", "Choose file"))
                         .font(.system(size: 13, weight: .medium))
                     ShortcutHint(keys: "⌘O")
                 }
@@ -114,7 +167,7 @@ private struct FileDropView: View {
 }
 
 private struct TranscriptionFinishedView: View {
-    let store: AppStore
+    @Bindable var store: AppStore
 
     var body: some View {
         StateLayout {
@@ -126,7 +179,8 @@ private struct TranscriptionFinishedView: View {
             }
 
             VStack(spacing: 6) {
-                Text("Субтитры готовы").font(.system(size: 17, weight: .semibold))
+                Text(AppText.pick("Субтитры готовы", "Subtitles are ready"))
+                    .font(.system(size: 17, weight: .semibold))
                 Text(store.selectedFile?.lastPathComponent ?? "")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
@@ -134,18 +188,45 @@ private struct TranscriptionFinishedView: View {
                     .truncationMode(.middle)
             }
 
-            Label("\(store.cues.count) \(lineWord(store.cues.count))  •  SRT, UTF‑8", systemImage: "captions.bubble")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .frame(height: 32)
-                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+            HStack(spacing: 8) {
+                Label(AppText.lineCount(store.cues.count), systemImage: "captions.bubble")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+
+                ExportMenu(title: store.exportFormat.title) {
+                    ForEach(SubtitleFormat.allCases) { format in
+                        Button {
+                            store.exportFormat = format
+                        } label: {
+                            if store.exportFormat == format {
+                                Label(format.title, systemImage: "checkmark")
+                            } else {
+                                Text(format.title)
+                            }
+                        }
+                    }
+                }
+
+                ExportMenu(title: store.exportEncoding.title) {
+                    ForEach(availableEncodings) { encoding in
+                        Button {
+                            store.exportEncoding = encoding
+                        } label: {
+                            if store.exportEncoding == encoding {
+                                Label(encoding.title, systemImage: "checkmark")
+                            } else {
+                                Text(encoding.title)
+                            }
+                        }
+                    }
+                }
+            }
 
             HStack(spacing: 8) {
-                Button("Другой файл", action: store.reset)
+                Button(AppText.pick("Другой файл", "Another file"), action: store.reset)
                 Button(action: store.save) {
                     HStack(spacing: 8) {
-                        Text("Сохранить…")
+                        Text(AppText.pick("Сохранить…", "Save…"))
                         ShortcutHint(keys: "⌘S", inverted: true)
                     }
                 }
@@ -153,6 +234,27 @@ private struct TranscriptionFinishedView: View {
                 .keyboardShortcut("s", modifiers: .command)
             }
         }
+    }
+
+    private var availableEncodings: [SubtitleEncoding] {
+        store.exportFormat.requiresUTF8 ? [.utf8] : SubtitleEncoding.allCases
+    }
+}
+
+private struct ExportMenu<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        Menu { content } label: {
+            Text(title)
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 9)
+            .frame(height: 30)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 }
 
@@ -166,14 +268,15 @@ private struct FailureView: View {
                 .font(.system(size: 38, weight: .light))
                 .foregroundStyle(.orange)
             VStack(spacing: 6) {
-                Text("Не удалось создать субтитры").font(.system(size: 17, weight: .semibold))
+                Text(AppText.pick("Не удалось создать субтитры", "Couldn’t create subtitles"))
+                    .font(.system(size: 17, weight: .semibold))
                 Text(message)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
             }
-            Button("Вернуться", action: retry).buttonStyle(.borderedProminent)
+            Button(AppText.pick("Вернуться", "Go back"), action: retry).buttonStyle(.borderedProminent)
         }
     }
 }
@@ -201,13 +304,4 @@ struct ShortcutHint: View {
             .frame(height: 18)
             .background(inverted ? AnyShapeStyle(.white.opacity(0.13)) : AnyShapeStyle(.quaternary.opacity(0.7)), in: RoundedRectangle(cornerRadius: 4))
     }
-}
-
-private func lineWord(_ count: Int) -> String {
-    let lastTwo = count % 100
-    let last = count % 10
-    if (11...14).contains(lastTwo) { return "строк" }
-    if last == 1 { return "строка" }
-    if (2...4).contains(last) { return "строки" }
-    return "строк"
 }

@@ -1,16 +1,23 @@
 # WhisperDrop — agent context
 
+- About shows the purpose, version, build, embedded Git commit, and `https://x.com/fawkek_obj`; GitHub remains disabled until its URL is supplied.
+- Release metadata defaults to version `0.1.0`, build `1`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
+- `./script/build_and_run.sh --package` builds Release, signs with `DEVELOPER_ID_APPLICATION` when set (otherwise ad hoc), verifies the signature, and creates `dist/WhisperDrop-<version>-macOS.zip`.
+
 This file is the durable implementation context for future work on WhisperDrop. Read it before changing the project.
 
 ## Product goal
 
-WhisperDrop is a focused native macOS utility that creates `.srt` subtitles locally from an audio or video file. The primary flow is deliberately linear:
+WhisperDrop is a focused native macOS utility that creates subtitle files locally from an audio or video file. The primary flow is deliberately linear:
 
 1. If the model is absent, offer to download it.
 2. Show only the file drop/select state.
 3. After accepting a file, remove the drop field completely.
 4. Show transcription animation, progress, and file name. Do not show a live line count.
-5. When complete, show the exact cue count and allow saving UTF-8 SRT.
+5. When complete, show the exact cue count, format and encoding controls, and allow saving the selected output.
+
+Speech language is always auto-detected. The finished state offers SRT, WebVTT, ASS, and TXT plus common encodings. Defaults remain SRT and UTF-8; WebVTT is always UTF-8.
+Format and encoding controls must open their choices directly. Use direct menu buttons with a checkmark for the current value; do not wrap a Picker inside a Menu or draw a second custom disclosure arrow.
 
 Do not combine these states into one dashboard. Progressive disclosure is a core requirement.
 
@@ -33,29 +40,44 @@ Always use `script/build_and_run.sh` to review the GUI. Do not launch the raw Sw
 
 The build script compiles the icon catalog with `actool`, copies `Assets.car` and `AppIcon.icns` into the bundle, and declares both `CFBundleIconName` and `CFBundleIconFile`. Keep the 1024 px source image; regenerate all catalog sizes from it when the icon changes.
 
+The current icon is a dark navy macOS tile with a large, perfectly symmetrical blue-to-cyan audio waveform made from exactly 11 separate rounded vertical bars. Do not restore the earlier dense-waveform, hearing-aid, or television concepts unless the user explicitly requests another redesign.
+
 ## Model and privacy
 
 - Engine: open-source WhisperKit `0.18.x` through `argmaxinc/argmax-oss-swift`
-- Model: Core ML Whisper Large v3 Turbo
-- Model directory: `Models/openai_whisper-large-v3-v20240930`
-- Tokenizer directory: `Models/tokenizer`
+- Model: full uncompressed Core ML OpenAI Whisper Large v3, build `openai_whisper-large-v3-v20240930`
+- Runtime model directory: `~/Library/Application Support/WhisperDrop/Models/openai_whisper-large-v3-v20240930`
+- Development tokenizer source: `Models/tokenizer`; packaged tokenizer: `WhisperDrop.app/Contents/Resources/Tokenizer`
 - The model was copied from the existing MacWhisper installation. Do not move or delete the MacWhisper original.
-- Model weights are about 1.5 GB and intentionally ignored by Git via `Models/.gitignore`.
-- The app bundle uses a resource symlink to the project `Models` directory during local builds.
+- Official download source: `https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930`.
+- The official repository reports the model download as about 1.62 GB. Do not silently switch back to the 627 MB 4-bit compressed variant.
+- Model weights are intentionally ignored by Git via `Models/.gitignore`.
+- The tokenizer is about 2.7 MB, is required, and is not generated per user. The build script bundles the official compatible tokenizer JSON files in app resources; downloaded model weights live separately in Application Support.
+- The app bundle must not use a resource symlink to the project `Models` directory. Writing through that symlink into `Documents` causes repeated macOS privacy prompts and unreliable progress reads.
 - If model files are missing, the app offers an in-app download.
+- The model setup screen intentionally stays concise: localized state title, `OpenAI Whisper Large v3`, short localized accuracy/local-processing description, total size, downloaded bytes, and percentage. Keep the technical variant identifier in code/docs, not as a duplicate UI line.
+- Download model files through the app's resumable `URLSessionDataDelegate` service. It reports exact cumulative bytes for every received network block and resumes `.partial` files with HTTP `Range`; do not estimate progress or poll the filesystem. Legacy WhisperKit/Hugging Face partial downloads are migrated once before the first new transfer. Keep only volume, total, and percentage visible; do not add speed or ETA unless explicitly requested.
+- Retry interrupted model transfers up to five times with exponential backoff, always resuming the existing `.partial` file. Treat the model as installed only when every manifest file has its exact expected byte size. Download failures stay on the model setup screen with a localized retry action; never route them through the subtitle-transcription failure screen.
+- A resumed transfer must receive HTTP 206. If a CDN returns HTTP 200 for a ranged request, cancel and retry without truncating or replacing the `.partial` file; downloaded bytes must never move backward.
+- Recover an oversized weight file only when the SHA-256 of its official-length prefix matches the Hugging Face LFS hash: truncate the verified duplicate tail and remove the stale `.partial`. Never repair an oversized file based on size alone.
+- Cancelling a model download must always return to `needsModel`, even if cached or partially downloaded files exist. A stale download task must never advance the UI to `ready` after cancellation.
 - Transcription is on-device. Media must never be uploaded to a remote service.
 
-`ModelLocator.swift` is the single source of truth for model paths and installation checks.
+`ModelLocator.swift` is the single source of truth for model paths and installation checks. Application Support is the permanent no-prompt model store; no folder-permission onboarding window is needed.
 
 ## Architecture
 
 - `App/WhisperDropApp.swift`: app entry point, foreground activation, scene and commands.
 - `Models/SubtitleCue.swift`: final subtitle cue value type.
+- `Models/ExportOptions.swift`: supported subtitle formats and text encodings.
 - `Stores/AppStore.swift`: `@MainActor @Observable` UI state and workflow orchestration.
 - `Services/AudioExtractor.swift`: converts unsupported video containers to temporary M4A with AVFoundation.
 - `Services/TranscriptionService.swift`: WhisperKit setup, transcription, download, and progress callbacks.
 - `Services/ModelLocator.swift`: model/tokenizer locations.
 - `Support/SRTFormatter.swift`: deterministic UTF-8 SRT rendering and timestamp formatting.
+- `Support/SubtitleExporter.swift`: SRT, WebVTT, ASS, and TXT rendering plus byte encoding/BOM handling.
+- `Support/WhisperTextSanitizer.swift`: removes Whisper control and timestamp tokens from decoded text.
+- `Support/AppText.swift`: Russian/English UI selection and localized line-count text.
 - `Support/WindowGlass.swift`: narrow AppKit bridge for one continuous translucent window material.
 - `Views/ContentView.swift`: mutually exclusive top-level states and drop/setup/result/failure screens.
 - `Views/TranscribingView.swift`: transcription-only UI and waveform/progress animation.
@@ -78,17 +100,22 @@ Only one phase surface should be visible at a time. Dropping another file while 
 
 ## Subtitle correctness
 
-- Output encoding: UTF-8.
-- Format: SubRip `.srt`.
-- Timestamp format: `HH:MM:SS,mmm`.
+- Default output encoding: UTF-8.
+- Export encodings: UTF-8, UTF-8 BOM, UTF-16 LE, Windows-1251, and Windows-1252. The default is UTF-8.
+- Export formats: SRT, WebVTT, ASS, and plain TXT. The default is SRT.
+- SRT timestamps use `HH:MM:SS,mmm`; WebVTT uses a decimal point; ASS uses centiseconds and includes a standard default style/header.
+- TXT exports cue text without timestamps.
+- WebVTT requires UTF-8. Selecting WebVTT resets the encoding to UTF-8 and hides incompatible encodings.
+- UTF-8 BOM and UTF-16 LE prepend the correct byte-order mark.
+- Legacy encodings reject unsupported characters with a localized error instead of silently replacing them.
 - Cues are filtered for non-empty text and positive duration, then sorted by start time.
-- Whisper control and timestamp tokens in the form `<|...|>` must be stripped from cue text before display or SRT export.
-- WhisperKit segment timestamps are converted from seconds to SRT milliseconds.
-- `SRTFormatterTests` verifies timestamp and Unicode behavior.
+- Whisper control and timestamp tokens in the form `<|...|>` must be stripped from cue text before display or any export.
+- WhisperKit segment timestamps are converted from seconds into the timestamp syntax required by each export format.
+- `SRTFormatterTests` currently has six tests covering SRT timestamps/Unicode, negative timestamp clamping, Whisper-token removal, WebVTT, ASS multiline output, and UTF-8 BOM.
 
 Do not show a live subtitle-line counter during decoding: WhisperKit finalizes segments in batches, so an intermediate count can remain at zero or be misleading. Show the exact final cue count only on the completed state.
 
-Transcription progress must use `WhisperKit.progress.fractionCompleted`. `TranscriptionProgress.timings.inputAudioSeconds` belongs to decoder timing statistics and is not the current playback position.
+Transcription progress must use `WhisperKit.progress.fractionCompleted`. `TranscriptionProgress.timings.inputAudioSeconds` belongs to decoder timing statistics and is not the current playback position. WhisperKit reports progress at chunk boundaries, so the percentage may remain unchanged for a while during a long or difficult chunk even while CPU usage confirms active inference. Do not invent fake progress to hide this.
 
 ## UI and design invariants
 
@@ -98,9 +125,14 @@ Transcription progress must use `WhisperKit.progress.fractionCompleted`. `Transc
 - macOS typography: 17 pt state title, 15 pt secondary heading, 13 pt body, 11–12 pt metadata.
 - Use SF Symbols and semantic system/accent colors.
 - Light and dark appearance follow the system automatically.
+- Visible app text uses Russian when the primary preferred system language starts with `ru`; otherwise it uses English. Speech recognition language remains automatic and must not be exposed as an interface selector unless explicitly requested later.
 - File drop state, transcription state, and finished state must remain separate.
 - Primary actions keep visible shortcut hints where appropriate.
 - State transitions use short 150–250 ms macOS-style fades/scales.
+- The transcription ring and waveform use one oversized, smooth blue-to-light-blue linear gradient without repeating color bands. Render active animation at 60 FPS and respect Reduce Motion by freezing gradient travel and waveform movement.
+- Interpolate circular progress changes with a short smooth animation so WhisperKit's chunk-level progress updates never appear as abrupt jumps.
+- The transcription screen has one progress visualization only: the circular ring. Show the numeric percentage below its title and a separate Cancel action; do not add a duplicate linear progress bar or explanatory line-count placeholder.
+- The finished screen shows exact cue count, format, and encoding in one compact row. Format and encoding menus open their choices directly and show a checkmark on the selected item. Never nest a `Picker` inside these `Menu` controls and never draw a second disclosure chevron.
 
 ## Window glass implementation
 
@@ -139,7 +171,7 @@ For every change:
 4. Confirm the process is running and the app bundle was regenerated.
 5. Commit only relevant files; model weights must stay untracked/ignored.
 
-Current tests cover formatting, not visual appearance or full-model inference. Do not claim a complete media transcription was tested unless one was actually run.
+Current tests cover formatting and export bytes, not visual appearance, every legacy encoding, or full-model inference. Do not claim a complete media transcription was tested unless one was actually run.
 
 ## Stabilization backlog before release
 
@@ -164,14 +196,14 @@ Treat the following as required release work, not optional polish:
 
 ### Progress and user feedback
 
-- Replace the current timing approximation with progress based on processed audio position or WhisperKit windows.
+- Investigate a more granular truthful progress source than WhisperKit's chunk-level `fractionCompleted`; long chunks can leave the displayed percentage unchanged despite active inference.
 - Keep model loading, audio conversion, transcription, and finalization as distinct measurable phases.
 - Show actionable errors rather than raw framework messages.
 - Add a clear first-run model size/free-space warning and resumable download UI.
 
 ### Model management
 
-- For release, store models in the user Application Support directory, never through the project resource symlink.
+- Keep models in the user Application Support directory, never through a project resource symlink. This is already implemented; preserve it during the Xcode-target migration.
 - Download from the official Argmax/WhisperKit source; do not redistribute the model copied from MacWhisper.
 - Verify downloaded files with expected size and cryptographic checksum before loading.
 - Support resume, atomic installation, migration, corruption recovery, and deletion from settings.
@@ -190,7 +222,7 @@ Treat the following as required release work, not optional polish:
 - Enable Hardened Runtime and sign every nested executable/framework with the correct identity.
 - For direct distribution, sign with Developer ID Application, notarize, staple, and validate with `codesign`, `spctl`, and `stapler`.
 - For Mac App Store, use Apple Distribution, provisioning, App Sandbox, App Store Connect validation, and Review.
-- Replace the local model symlink in release bundles; it is development-only.
+- Verify release bundles still contain the tokenizer resources and no local model/project symlink.
 - Add semantic version, build number, copyright, privacy information, and update policy.
 
 ### Compatibility and performance
@@ -204,7 +236,8 @@ Treat the following as required release work, not optional polish:
 
 - Test glass/titlebar rendering in light mode, dark mode, inactive windows, Reduce Transparency, Increase Contrast, and Reduce Motion.
 - Add VoiceOver labels, keyboard focus order, full keyboard operation, and sufficient contrast.
-- Localize all visible strings instead of leaving Russian strings in source.
+- Replace the current inline `AppText.pick` localization layer with String Catalogs before release if the project migrates to a full Xcode app target.
+- Current UI language policy: use Russian only when the system's primary preferred language starts with `ru`; otherwise use English. Test both language paths explicitly.
 - Verify icon appearance at all required sizes in Dock, Finder, app switcher, About, and distribution storefronts.
 
 ### Distribution readiness

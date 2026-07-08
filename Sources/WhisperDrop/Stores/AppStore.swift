@@ -19,10 +19,20 @@ final class AppStore {
 
     var phase: Phase = ModelLocator.isInstalled ? .ready : .needsModel
     var progress = 0.0
+    var downloadedModelBytes: Int64 = 0
+    var modelDownloadTotalBytes: Int64 = ModelLocator.expectedDownloadBytes
+    var modelDownloadError: String?
     var selectedFile: URL?
     var cues: [SubtitleCue] = []
+    var exportFormat: SubtitleFormat = .srt {
+        didSet {
+            if exportFormat.requiresUTF8 { exportEncoding = .utf8 }
+        }
+    }
+    var exportEncoding: SubtitleEncoding = .utf8
     private let service = TranscriptionService()
     private var workTask: Task<Void, Never>?
+    private var operationID = UUID()
 
     var isWorking: Bool {
         [.downloading, .preparing, .transcribing].contains(phase)
@@ -83,35 +93,59 @@ final class AppStore {
     }
 
     func downloadModel() {
+        let id = UUID()
+        operationID = id
+        modelDownloadError = nil
         phase = .downloading
-        progress = 0
+        downloadedModelBytes = ModelLocator.downloadedVariantBytes
+        modelDownloadTotalBytes = ModelLocator.expectedDownloadBytes
+        progress = min(1, Double(downloadedModelBytes) / Double(modelDownloadTotalBytes))
         workTask = Task {
             do {
                 try await service.downloadModel { value in
-                    Task { @MainActor in self.progress = value }
+                    Task { @MainActor in
+                        guard self.operationID == id else { return }
+                        self.modelDownloadTotalBytes = value.totalBytes
+                        self.downloadedModelBytes = value.downloadedBytes
+                        self.progress = value.fraction
+                    }
                 }
+                try Task.checkCancellation()
+                guard operationID == id else { return }
                 progress = 1
+                downloadedModelBytes = modelDownloadTotalBytes
                 phase = .ready
+            } catch is CancellationError {
+                guard operationID == id else { return }
+                phase = .needsModel
             } catch {
-                phase = .failed(error.localizedDescription)
+                guard operationID == id else { return }
+                modelDownloadError = error.localizedDescription
+                phase = .needsModel
             }
         }
     }
 
     func cancel() {
+        let wasDownloading = phase == .downloading
+        operationID = UUID()
         workTask?.cancel()
-        phase = ModelLocator.isInstalled ? .ready : .needsModel
+        workTask = nil
+        phase = wasDownloading ? .needsModel : (ModelLocator.isInstalled ? .ready : .needsModel)
         progress = 0
+        if wasDownloading { downloadedModelBytes = 0 }
     }
 
     func save() {
         guard !cues.isEmpty else { return }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "srt")!]
-        panel.nameFieldStringValue = (selectedFile?.deletingPathExtension().lastPathComponent ?? "subtitles") + ".srt"
+        panel.allowedContentTypes = [UTType(filenameExtension: exportFormat.fileExtension) ?? .plainText]
+        panel.nameFieldStringValue = (selectedFile?.deletingPathExtension().lastPathComponent ?? "subtitles") + "." + exportFormat.fileExtension
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try SRTFormatter.render(cues).write(to: url, atomically: true, encoding: .utf8)
+            let text = SubtitleExporter.render(cues, format: exportFormat)
+            let data = try SubtitleExporter.data(text, encoding: exportEncoding)
+            try data.write(to: url, options: .atomic)
         } catch {
             phase = .failed(error.localizedDescription)
         }

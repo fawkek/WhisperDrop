@@ -19,11 +19,18 @@ struct WhisperDropApp: App {
         }
         .windowResizability(.contentSize)
         .commands {
+            AboutCommands()
             CommandGroup(replacing: .newItem) {
-                Button("Открыть файл…", action: store.chooseFile)
+                Button(AppText.pick("Открыть файл…", "Open File…"), action: store.chooseFile)
                     .keyboardShortcut("o", modifiers: .command)
                     .disabled(store.isWorking)
             }
         }
+
+        Window(AppText.pick("О WhisperDrop", "About WhisperDrop"), id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
     }
 }
