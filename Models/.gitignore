@@ -1,4 +1,7 @@
 *
 !.gitignore
 !README.md
-
+!tokenizer/
+!tokenizer/config.json
+!tokenizer/tokenizer.json
+!tokenizer/tokenizer_config.json
