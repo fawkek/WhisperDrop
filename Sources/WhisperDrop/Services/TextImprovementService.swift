@@ -50,7 +50,12 @@ actor TextImprovementService {
                 try await Task.sleep(for: .milliseconds(28))
             }
 
-            let correctedTexts = try runModel(runtime: runtime, cues: chunk)
+            let correctedTexts: [String]
+            do {
+                correctedTexts = try runModel(runtime: runtime, cues: chunk)
+            } catch is InvalidModelOutputError {
+                correctedTexts = chunk.map(\.text)
+            }
             guard correctedTexts.count == chunk.count else { throw InvalidModelOutputError() }
             improved.append(contentsOf: zip(chunk, correctedTexts).map { cue, text in
                 SubtitleCue(start: cue.start, end: cue.end, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -96,10 +101,11 @@ actor TextImprovementService {
         let inputJSON = String(decoding: inputData, as: UTF8.self)
         let prompt = """
         You are proofreading subtitles for deaf and hard-of-hearing viewers.
-        Return ONLY a valid JSON array of strings. The array length and order must match the input.
+        Start your answer with OUTPUT_JSON: followed by a valid JSON array of strings.
+        The array length and order must match the input.
         Fix only spelling, punctuation, capitalization, and spacing.
         Do not translate. Do not rewrite meaning. Do not add explanations.
-        Start your answer with OUTPUT_JSON: followed by the JSON array.
+        Example answer: OUTPUT_JSON:["Corrected first line.","Corrected second line."]
 
         Input JSON:
         \(inputJSON)

@@ -369,7 +369,7 @@ private struct ImprovingSubtitlesView: View {
                 }
 
                 WordFlowView(words: words)
-                    .frame(width: 330, height: 76)
+                    .frame(width: 340, height: 86)
                     .clipped()
 
                 Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
@@ -389,34 +389,63 @@ private struct WordFlowView: View {
     let words: [String]
 
     var body: some View {
-        VStack(spacing: 7) {
-            ForEach(Array(words.suffix(8).enumerated()), id: \.offset) { index, word in
-                Text(word)
-                    .font(.system(size: index == visibleCount - 1 ? 15 : 13, weight: index == visibleCount - 1 ? .semibold : .regular))
-                    .foregroundStyle(index == visibleCount - 1 ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
-                    .padding(.horizontal, 9)
-                    .frame(height: 20)
-                    .background(index == visibleCount - 1 ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.clear), in: Capsule())
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate
+            VStack(spacing: 4) {
+                ForEach(Array(displayRows.enumerated()), id: \.offset) { index, word in
+                    let isCenter = index == 1
+                    Text(word)
+                        .font(.system(size: isCenter ? 16 : 13, weight: isCenter ? .semibold : .regular))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(isCenter ? AnyShapeStyle(animatedGradient(phase)) : AnyShapeStyle(.secondary))
+                        .opacity(isCenter ? 1 : 0.38)
+                        .padding(.horizontal, 12)
+                        .frame(width: 320, height: 24)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .mask {
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.22),
-                    .init(color: .black, location: 0.78),
-                    .init(color: .clear, location: 1)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.25),
+                        .init(color: .black, location: 0.75),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
         }
     }
 
-    private var visibleCount: Int {
-        min(8, words.count)
+    private var displayRows: [String] {
+        let recent = Array(words.suffix(3))
+        switch recent.count {
+        case 0:
+            return ["", AppText.pick("Подготовка текста", "Preparing text"), ""]
+        case 1:
+            return ["", recent[0], ""]
+        case 2:
+            return [recent[0], recent[1], ""]
+        default:
+            return [recent[0], recent[2], recent[1]]
+        }
+    }
+
+    private func animatedGradient(_ phase: TimeInterval) -> LinearGradient {
+        let travel = sin(phase * 1.2) * 0.5 + 0.5
+        return LinearGradient(
+            colors: [
+                Color.blue.opacity(0.95),
+                Color.cyan,
+                Color.blue.opacity(0.85)
+            ],
+            startPoint: UnitPoint(x: -0.4 + travel * 0.8, y: 0.5),
+            endPoint: UnitPoint(x: 0.8 + travel * 0.8, y: 0.5)
+        )
     }
 }
 
