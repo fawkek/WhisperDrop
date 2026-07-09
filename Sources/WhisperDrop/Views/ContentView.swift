@@ -197,6 +197,12 @@ private struct TranscriptionFinishedView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
 
+                if let changedCount = store.proofreadingChangedCueCount {
+                    Label(AppText.correctionCount(changedCount), systemImage: "text.badge.checkmark")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+
                 ExportMenu(title: store.exportFormat.title) {
                     ForEach(SubtitleFormat.allCases) { format in
                         Button {

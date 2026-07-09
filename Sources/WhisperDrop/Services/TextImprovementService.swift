@@ -1,6 +1,12 @@
 import Foundation
+import OSLog
 
 actor TextImprovementService {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "WhisperDrop",
+        category: "Proofreading"
+    )
+
     private enum InferenceMode {
         case metal
         case cpu
@@ -41,6 +47,8 @@ actor TextImprovementService {
         let runtime = try runtimeURL()
         var improved: [SubtitleCue] = []
         let chunks = cues.chunked(into: 12)
+        Self.logger.info("Qwen proofreading run started: cues=\(cues.count, privacy: .public), chunks=\(chunks.count, privacy: .public)")
+        AppFileLog.write("Qwen run started: cues=\(cues.count), chunks=\(chunks.count)")
         for chunkIndex in chunks.indices {
             try Task.checkCancellation()
             let chunk = chunks[chunkIndex]
@@ -55,9 +63,26 @@ actor TextImprovementService {
                 try await Task.sleep(for: .milliseconds(28))
             }
 
-            let correctedTexts = (try? runModel(runtime: runtime, cues: chunk, mode: .metal))
-                ?? (try? runModel(runtime: runtime, cues: chunk, mode: .cpu))
-                ?? chunk.map(\.text)
+            let correctedTexts: [String]
+            do {
+                Self.logger.info("Qwen chunk \(chunkIndex + 1, privacy: .public)/\(chunks.count, privacy: .public): trying Metal")
+                AppFileLog.write("Qwen chunk \(chunkIndex + 1)/\(chunks.count): trying Metal")
+                correctedTexts = try runModel(runtime: runtime, cues: chunk, mode: .metal)
+                Self.logger.info("Qwen chunk \(chunkIndex + 1, privacy: .public): Metal succeeded")
+                AppFileLog.write("Qwen chunk \(chunkIndex + 1): Metal succeeded")
+            } catch {
+                Self.logger.warning("Qwen chunk \(chunkIndex + 1, privacy: .public): Metal failed, retrying CPU: \(error.localizedDescription, privacy: .public)")
+                AppFileLog.write("Qwen chunk \(chunkIndex + 1): Metal failed, retrying CPU: \(error.localizedDescription)")
+                do {
+                    correctedTexts = try runModel(runtime: runtime, cues: chunk, mode: .cpu)
+                    Self.logger.info("Qwen chunk \(chunkIndex + 1, privacy: .public): CPU fallback succeeded")
+                    AppFileLog.write("Qwen chunk \(chunkIndex + 1): CPU fallback succeeded")
+                } catch {
+                    Self.logger.warning("Qwen chunk \(chunkIndex + 1, privacy: .public): CPU fallback failed, keeping original text: \(error.localizedDescription, privacy: .public)")
+                    AppFileLog.write("Qwen chunk \(chunkIndex + 1): CPU fallback failed, keeping original text: \(error.localizedDescription)")
+                    correctedTexts = chunk.map(\.text)
+                }
+            }
             guard correctedTexts.count == chunk.count else { throw InvalidModelOutputError() }
             improved.append(contentsOf: zip(chunk, correctedTexts).map { cue, text in
                 SubtitleCue(start: cue.start, end: cue.end, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -65,6 +90,8 @@ actor TextImprovementService {
             progress(Double(chunkIndex + 1) / Double(chunks.count), correctedTexts.last ?? "")
         }
 
+        Self.logger.info("Qwen proofreading run finished")
+        AppFileLog.write("Qwen run finished")
         return improved
     }
 
@@ -74,6 +101,8 @@ actor TextImprovementService {
             .appending(path: "bin", directoryHint: .isDirectory)
             .appending(path: "llama-cli"),
            FileManager.default.isExecutableFile(atPath: bundled.path) {
+            Self.logger.info("Using bundled llama runtime")
+            AppFileLog.write("Using bundled llama runtime")
             return bundled
         }
 
@@ -82,6 +111,8 @@ actor TextImprovementService {
             .appending(path: "bin", directoryHint: .isDirectory)
             .appending(path: "llama-cli")
         if FileManager.default.isExecutableFile(atPath: installed.path) {
+            Self.logger.info("Using Application Support llama runtime")
+            AppFileLog.write("Using Application Support llama runtime")
             return installed
         }
 
@@ -92,6 +123,8 @@ actor TextImprovementService {
             "/usr/local/bin/main"
         ]
         for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
+            Self.logger.info("Using system llama runtime: \(path, privacy: .public)")
+            AppFileLog.write("Using system llama runtime: \(path)")
             return URL(filePath: path)
         }
         throw RuntimeUnavailableError()

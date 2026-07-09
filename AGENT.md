@@ -231,6 +231,8 @@ Treat the following as required release work, not optional polish:
 - Add checksum verification for the Qwen GGUF file; current implementation checks exact size only.
 - The Qwen CLI invocation must be one-shot. Keep `--single-turn`, `--reasoning off`, no timings/color, and prefer the final `OUTPUT_JSON:` marker. The parser may accept a raw JSON array, fenced `json` block, or common object wrappers like `{"output":[...]}` only when the decoded string count exactly matches the input cue count. Never accept echoed input JSON from the prompt as a successful model response.
 - Do not enable llama.cpp `--json-schema` until verified against the bundled runtime; the local build failed grammar sampler initialization for simple array schemas. If a Qwen chunk returns an invalid format, keep that chunk's original text and continue instead of failing the whole proofreading job.
+- After proofreading, compare original and improved cue text and show the changed cue count on the finished screen, e.g. `1243 исправления` / `1243 corrections`. This is user-facing result metadata, not diagnostic logging.
+- Diagnostic logs must not be shown on the main surface. Use the top `Диагностика` / `Diagnostics` menu to open `~/Library/Application Support/WhisperDrop/Logs/WhisperDrop.log` or reveal its folder. Logs may include counts, chunk numbers, runtime mode, fallback paths, and errors, but must not include raw subtitle text.
 
 ### Subtitle proofreading stabilization
 

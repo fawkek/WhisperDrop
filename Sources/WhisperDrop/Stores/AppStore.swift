@@ -2,11 +2,17 @@ import AppKit
 import AVFoundation
 import Foundation
 import Observation
+import OSLog
 import UniformTypeIdentifiers
 
 @MainActor
 @Observable
 final class AppStore {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "WhisperDrop",
+        category: "Proofreading"
+    )
+
     enum Phase: Equatable {
         case needsModel
         case ready
@@ -29,6 +35,7 @@ final class AppStore {
     var improvementDownloadTotalBytes: Int64 = TextImprovementModelLocator.expectedDownloadBytes
     var improvementDownloadError: String?
     var improvementWord: String = ""
+    var proofreadingChangedCueCount: Int?
     private var shouldImproveAfterModelDownload = false
     var selectedFile: URL?
     var cues: [SubtitleCue] = []
@@ -88,6 +95,7 @@ final class AppStore {
         shouldImproveAfterModelDownload = false
         selectedFile = url
         cues = []
+        proofreadingChangedCueCount = nil
         progress = 0
         phase = .preparing
         workTask = Task {
@@ -120,6 +128,7 @@ final class AppStore {
         selectedFile = url
         progress = 0
         improvementWord = ""
+        proofreadingChangedCueCount = nil
         do {
             cues = try SubtitleImporter.load(url)
             exportFormat = SubtitleImporter.format(for: url)
@@ -210,11 +219,15 @@ final class AppStore {
         operationID = id
         progress = 0
         improvementWord = ""
+        proofreadingChangedCueCount = nil
         phase = .improvingSubtitles
+        let originalCues = cues
+        Self.logger.info("Proofreading started: cues=\(originalCues.count, privacy: .public)")
+        AppFileLog.write("Proofreading started: cues=\(originalCues.count)")
         workTask = Task {
             do {
                 let improved = try await improvementService.improve(
-                    cues: cues,
+                    cues: originalCues,
                     progress: { value, word in
                         Task { @MainActor in
                             guard self.operationID == id else { return }
@@ -224,15 +237,23 @@ final class AppStore {
                     }
                 )
                 guard operationID == id else { return }
+                let changedCount = Self.changedCueCount(original: originalCues, improved: improved)
                 cues = improved
+                proofreadingChangedCueCount = changedCount
                 progress = 1
                 improvementWord = ""
                 phase = .finished
+                Self.logger.info("Proofreading finished: cues=\(improved.count, privacy: .public), changed=\(changedCount, privacy: .public)")
+                AppFileLog.write("Proofreading finished: cues=\(improved.count), changed=\(changedCount)")
             } catch is CancellationError {
                 guard operationID == id else { return }
+                Self.logger.info("Proofreading cancelled")
+                AppFileLog.write("Proofreading cancelled")
                 phase = .finished
             } catch {
                 guard operationID == id else { return }
+                Self.logger.error("Proofreading failed: \(error.localizedDescription, privacy: .public)")
+                AppFileLog.write("Proofreading failed: \(error.localizedDescription)")
                 phase = .failed(error.localizedDescription)
             }
         }
@@ -297,7 +318,32 @@ final class AppStore {
         cues = []
         progress = 0
         improvementWord = ""
+        proofreadingChangedCueCount = nil
         shouldImproveAfterModelDownload = false
         phase = .ready
+    }
+
+    func showLog() {
+        ensureLogFileExists()
+        NSWorkspace.shared.open(AppFileLog.logFile)
+    }
+
+    func showLogsFolder() {
+        ensureLogFileExists()
+        NSWorkspace.shared.activateFileViewerSelecting([AppFileLog.logFile])
+    }
+
+    private static func changedCueCount(original: [SubtitleCue], improved: [SubtitleCue]) -> Int {
+        zip(original, improved).reduce(0) { total, pair in
+            let originalText = pair.0.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let improvedText = pair.1.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return total + (originalText == improvedText ? 0 : 1)
+        }
+    }
+
+    private func ensureLogFileExists() {
+        if !FileManager.default.fileExists(atPath: AppFileLog.logFile.path) {
+            AppFileLog.write("Log created")
+        }
     }
 }

@@ -25,6 +25,11 @@ struct WhisperDropApp: App {
                     .keyboardShortcut("o", modifiers: .command)
                     .disabled(store.isWorking)
             }
+            CommandMenu(AppText.pick("Диагностика", "Diagnostics")) {
+                Button(AppText.pick("Показать лог", "Show Log"), action: store.showLog)
+                    .keyboardShortcut("l", modifiers: [.command, .option])
+                Button(AppText.pick("Показать папку логов", "Show Logs Folder"), action: store.showLogsFolder)
+            }
         }
 
         Window(AppText.pick("О WhisperDrop", "About WhisperDrop"), id: "about") {

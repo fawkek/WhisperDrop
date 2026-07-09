@@ -20,4 +20,16 @@ enum AppText {
         else { word = "строк" }
         return "\(count) \(word)"
     }
+
+    static func correctionCount(_ count: Int) -> String {
+        guard isRussian else { return "\(count) \(count == 1 ? "correction" : "corrections")" }
+        let lastTwo = count % 100
+        let last = count % 10
+        let word: String
+        if (11...14).contains(lastTwo) { word = "исправлений" }
+        else if last == 1 { word = "исправление" }
+        else if (2...4).contains(last) { word = "исправления" }
+        else { word = "исправлений" }
+        return "\(count) \(word)"
+    }
 }
