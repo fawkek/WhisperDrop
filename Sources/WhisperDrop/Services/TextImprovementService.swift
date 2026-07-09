@@ -1,4 +1,6 @@
 import Foundation
+import MLXLLM
+import MLXLMCommon
 import OSLog
 
 actor TextImprovementService {
@@ -7,16 +9,13 @@ actor TextImprovementService {
         category: "Proofreading"
     )
 
-    private enum InferenceMode {
-        case metal
-        case cpu
-    }
+    private var modelContainer: ModelContainer?
 
     struct RuntimeUnavailableError: LocalizedError {
         var errorDescription: String? {
             AppText.pick(
-                "Модель Qwen загружена, но локальный движок llama-cli не найден. Для релиза нужно встроить llama.cpp в приложение.",
-                "The Qwen model is downloaded, but the local llama-cli runtime was not found. Bundle llama.cpp before release."
+                "Модель Qwen не установлена или повреждена.",
+                "The Qwen model is missing or damaged."
             )
         }
     }
@@ -44,11 +43,11 @@ actor TextImprovementService {
             throw CocoaError(.fileNoSuchFile)
         }
 
-        let runtime = try runtimeURL()
+        let model = try await loadedModel()
         var improved: [SubtitleCue] = []
         let chunks = cues.chunked(into: 12)
-        Self.logger.info("Qwen proofreading run started: cues=\(cues.count, privacy: .public), chunks=\(chunks.count, privacy: .public)")
-        AppFileLog.write("Qwen run started: cues=\(cues.count), chunks=\(chunks.count)")
+        Self.logger.info("MLX proofreading run started: cues=\(cues.count, privacy: .public), chunks=\(chunks.count, privacy: .public)")
+        AppFileLog.write("MLX Metal proofreading run started: cues=\(cues.count), chunks=\(chunks.count)")
         for chunkIndex in chunks.indices {
             try Task.checkCancellation()
             let chunk = chunks[chunkIndex]
@@ -65,23 +64,15 @@ actor TextImprovementService {
 
             let correctedTexts: [String]
             do {
-                Self.logger.info("Qwen chunk \(chunkIndex + 1, privacy: .public)/\(chunks.count, privacy: .public): trying Metal")
-                AppFileLog.write("Qwen chunk \(chunkIndex + 1)/\(chunks.count): trying Metal")
-                correctedTexts = try runModel(runtime: runtime, cues: chunk, mode: .metal)
-                Self.logger.info("Qwen chunk \(chunkIndex + 1, privacy: .public): Metal succeeded")
-                AppFileLog.write("Qwen chunk \(chunkIndex + 1): Metal succeeded")
+                Self.logger.info("MLX Metal chunk \(chunkIndex + 1, privacy: .public)/\(chunks.count, privacy: .public) started")
+                AppFileLog.write("MLX Metal chunk \(chunkIndex + 1)/\(chunks.count) started")
+                correctedTexts = try await runModel(model: model, cues: chunk)
+                Self.logger.info("MLX Metal chunk \(chunkIndex + 1, privacy: .public) succeeded")
+                AppFileLog.write("MLX Metal chunk \(chunkIndex + 1) succeeded")
             } catch {
-                Self.logger.warning("Qwen chunk \(chunkIndex + 1, privacy: .public): Metal failed, retrying CPU: \(error.localizedDescription, privacy: .public)")
-                AppFileLog.write("Qwen chunk \(chunkIndex + 1): Metal failed, retrying CPU: \(error.localizedDescription)")
-                do {
-                    correctedTexts = try runModel(runtime: runtime, cues: chunk, mode: .cpu)
-                    Self.logger.info("Qwen chunk \(chunkIndex + 1, privacy: .public): CPU fallback succeeded")
-                    AppFileLog.write("Qwen chunk \(chunkIndex + 1): CPU fallback succeeded")
-                } catch {
-                    Self.logger.warning("Qwen chunk \(chunkIndex + 1, privacy: .public): CPU fallback failed, keeping original text: \(error.localizedDescription, privacy: .public)")
-                    AppFileLog.write("Qwen chunk \(chunkIndex + 1): CPU fallback failed, keeping original text: \(error.localizedDescription)")
-                    correctedTexts = chunk.map(\.text)
-                }
+                Self.logger.warning("MLX Metal chunk \(chunkIndex + 1, privacy: .public) failed, keeping original text: \(error.localizedDescription, privacy: .public)")
+                AppFileLog.write("MLX Metal chunk \(chunkIndex + 1) failed, keeping original text: \(error.localizedDescription)")
+                correctedTexts = chunk.map(\.text)
             }
             guard correctedTexts.count == chunk.count else { throw InvalidModelOutputError() }
             improved.append(contentsOf: zip(chunk, correctedTexts).map { cue, text in
@@ -90,47 +81,23 @@ actor TextImprovementService {
             progress(Double(chunkIndex + 1) / Double(chunks.count), correctedTexts.last ?? "")
         }
 
-        Self.logger.info("Qwen proofreading run finished")
-        AppFileLog.write("Qwen run finished")
+        Self.logger.info("MLX proofreading run finished")
+        AppFileLog.write("MLX Metal proofreading run finished")
         return improved
     }
 
-    private func runtimeURL() throws -> URL {
-        if let bundled = Bundle.main.resourceURL?
-            .appending(path: "LLMRuntime", directoryHint: .isDirectory)
-            .appending(path: "bin", directoryHint: .isDirectory)
-            .appending(path: "llama-cli"),
-           FileManager.default.isExecutableFile(atPath: bundled.path) {
-            Self.logger.info("Using bundled llama runtime")
-            AppFileLog.write("Using bundled llama runtime")
-            return bundled
-        }
-
-        let installed = ModelLocator.modelsRoot
-            .appending(path: "Runtime", directoryHint: .isDirectory)
-            .appending(path: "bin", directoryHint: .isDirectory)
-            .appending(path: "llama-cli")
-        if FileManager.default.isExecutableFile(atPath: installed.path) {
-            Self.logger.info("Using Application Support llama runtime")
-            AppFileLog.write("Using Application Support llama runtime")
-            return installed
-        }
-
-        let candidates = [
-            "/opt/homebrew/bin/llama-cli",
-            "/usr/local/bin/llama-cli",
-            "/opt/homebrew/bin/main",
-            "/usr/local/bin/main"
-        ]
-        for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
-            Self.logger.info("Using system llama runtime: \(path, privacy: .public)")
-            AppFileLog.write("Using system llama runtime: \(path)")
-            return URL(filePath: path)
-        }
-        throw RuntimeUnavailableError()
+    private func loadedModel() async throws -> ModelContainer {
+        if let modelContainer { return modelContainer }
+        guard TextImprovementModelLocator.isInstalled else { throw RuntimeUnavailableError() }
+        let configuration = ModelConfiguration(directory: TextImprovementModelLocator.modelFolder)
+        AppFileLog.write("Loading local MLX Qwen model for Metal inference")
+        let container = try await LLMModelFactory.shared.loadContainer(configuration: configuration)
+        modelContainer = container
+        AppFileLog.write("Local MLX Qwen model loaded")
+        return container
     }
 
-    private func runModel(runtime: URL, cues: [SubtitleCue], mode: InferenceMode) throws -> [String] {
+    private func runModel(model: ModelContainer, cues: [SubtitleCue]) async throws -> [String] {
         let input = cues.map(\.text)
         let inputData = try JSONEncoder().encode(input)
         let inputJSON = String(decoding: inputData, as: UTF8.self)
@@ -146,57 +113,20 @@ actor TextImprovementService {
         \(inputJSON)
         """
 
-        let process = Process()
-        process.executableURL = runtime
-        var arguments = [
-            "-m", TextImprovementModelLocator.modelFile.path,
-            "--no-display-prompt",
-            "--single-turn",
-            "--reasoning", "off",
-            "--no-show-timings",
-            "--color", "off",
-            "--temp", "0",
-            "-n", "512",
-            "-p", prompt
-        ]
-        switch mode {
-        case .metal:
-            arguments.insert(contentsOf: ["-ngl", "99"], at: arguments.count - 2)
-        case .cpu:
-            arguments.insert(contentsOf: ["--device", "none", "--fit", "off", "--no-op-offload", "-ngl", "0"], at: arguments.count - 2)
-        }
-        process.arguments = arguments
-        if let libraryPath = runtimeLibraryPath(for: runtime) {
-            var environment = ProcessInfo.processInfo.environment
-            environment["DYLD_LIBRARY_PATH"] = libraryPath
-            process.environment = environment
-        }
-
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-
-        let outputText = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        guard process.terminationStatus == 0 else {
-            throw NSError(
-                domain: "WhisperDrop.TextImprovement",
-                code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: outputText.isEmpty ? "llama-cli exited with code \(process.terminationStatus)" : outputText]
-            )
+        let preparedInput = try await model.prepare(input: UserInput(prompt: prompt))
+        let stream = try await model.generate(
+            input: preparedInput,
+            parameters: GenerateParameters(maxTokens: 512, temperature: 0)
+        )
+        var outputText = ""
+        for await generation in stream {
+            if case let .chunk(text) = generation { outputText += text }
         }
 
         guard let decoded = Self.decodeModelOutput(outputText, expectedCount: cues.count) else {
             throw InvalidModelOutputError()
         }
         return decoded
-    }
-
-    private func runtimeLibraryPath(for runtime: URL) -> String? {
-        let parent = runtime.deletingLastPathComponent().deletingLastPathComponent()
-        let library = parent.appending(path: "lib", directoryHint: .isDirectory)
-        return FileManager.default.fileExists(atPath: library.path) ? library.path : nil
     }
 
     static func decodeModelOutput(_ text: String, expectedCount: Int) -> [String]? {

@@ -64,11 +64,9 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - Recover an oversized weight file only when the SHA-256 of its official-length prefix matches the Hugging Face LFS hash: truncate the verified duplicate tail and remove the stale `.partial`. Never repair an oversized file based on size alone.
 - Cancelling a model download must always return to `needsModel`, even if cached or partially downloaded files exist. A stale download task must never advance the UI to `ready` after cancellation.
 - Transcription is on-device. Media must never be uploaded to a remote service.
-- Optional subtitle proofreading is also local-only. It uses the separate `Qwen/Qwen3-0.6B-GGUF` model file `Qwen3-0.6B-Q8_0.gguf` stored under `~/Library/Application Support/WhisperDrop/Models/TextImprovement`.
-- The Qwen proofreading model is Apache-2.0 and currently expected to be exactly `639,446,688` bytes. Keep it separate from the Whisper model and never require it for basic subtitle creation.
-- Qwen proofreading uses `llama-cli` from llama.cpp. The build script bundles a local Homebrew `llama.cpp` runtime into `WhisperDrop.app/Contents/Resources/LLMRuntime` when available, including the required `ggml` `libexec` backend plugins, patches dylib references to `@rpath`, and ad-hoc signs the nested executable/libraries for development. At runtime, `TextImprovementService` checks bundled runtime first, Application Support runtime second, and Homebrew paths last.
-- Qwen inference attempts Metal first (`-ngl 99`) and automatically retries the same chunk in CPU-safe mode (`--device none`, `-ngl 0`) if the Metal run exits with an error/crash or returns an invalid format. Local smoke tests showed the current Homebrew/bundled llama.cpp runtime can see `MTL0: Apple M3` but fails to create a Metal command queue, so CPU fallback is expected on this machine until the runtime is replaced or rebuilt.
-- Before public release, pin the llama.cpp version, verify clean-machine launch, and sign/notarize the nested runtime with the same release identity as the app.
+- Optional subtitle proofreading is local-only. It downloads the Apache-2.0 `mlx-community/Qwen3-0.6B-4bit` model (about 351 MB) to `~/Library/Application Support/WhisperDrop/Models/TextImprovementMLX`; it is never required for basic subtitle creation.
+- Proofreading runs through the bundled MLX Swift runtime, which uses Metal natively on Apple Silicon. Do not add a separate command-line runtime, Homebrew dependency, or CPU fallback path.
+- Download the complete required MLX model manifest with the app's resumable transfer service and consider the model installed only when every file matches its exact expected size. Once MLX installation succeeds, remove the obsolete `Qwen3-0.6B-Q8_0.gguf` file to reclaim its ~610 MiB.
 - Qwen proofreading must preserve cue count, order, start times, and end times. It may change only text spelling, punctuation, capitalization, and spacing. Do not translate, summarize, or rewrite meaning.
 
 `ModelLocator.swift` is the single source of truth for model paths and installation checks. Application Support is the permanent no-prompt model store; no folder-permission onboarding window is needed.
@@ -83,8 +81,8 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - `Services/TranscriptionService.swift`: WhisperKit setup, transcription, download, and progress callbacks.
 - `Services/ModelLocator.swift`: model/tokenizer locations.
 - `Services/TextImprovementModelLocator.swift`: Qwen proofreading model location, size, and download URL.
-- `Services/TextImprovementModelDownloader.swift`: resumable download of the Qwen GGUF model.
-- `Services/TextImprovementService.swift`: local subtitle proofreading orchestration through bundled/Application Support/Homebrew `llama-cli`.
+- `Services/TextImprovementModelDownloader.swift`: resumable download of the local MLX Qwen file manifest.
+- `Services/TextImprovementService.swift`: local subtitle proofreading through MLX Swift / Metal.
 - `Support/SRTFormatter.swift`: deterministic UTF-8 SRT rendering and timestamp formatting.
 - `Support/SubtitleExporter.swift`: SRT, WebVTT, ASS, and TXT rendering plus byte encoding/BOM handling.
 - `Support/WhisperTextSanitizer.swift`: removes Whisper control and timestamp tokens from decoded text.
@@ -227,17 +225,15 @@ Treat the following as required release work, not optional polish:
 - Verify downloaded files with expected size and cryptographic checksum before loading.
 - Support resume, atomic installation, migration, corruption recovery, and deletion from settings.
 - Document model and WhisperKit licenses in the app and distribution package.
-- Document Qwen3 model license and llama.cpp/runtime license in the app and distribution package before enabling proofreading in a public build.
-- Add checksum verification for the Qwen GGUF file; current implementation checks exact size only.
-- The Qwen CLI invocation must be one-shot. Keep `--single-turn`, `--reasoning off`, no timings/color, and prefer the final `OUTPUT_JSON:` marker. The parser may accept a raw JSON array, fenced `json` block, or common object wrappers like `{"output":[...]}` only when the decoded string count exactly matches the input cue count. Never accept echoed input JSON from the prompt as a successful model response.
-- Do not enable llama.cpp `--json-schema` until verified against the bundled runtime; the local build failed grammar sampler initialization for simple array schemas. If a Qwen chunk returns an invalid format, keep that chunk's original text and continue instead of failing the whole proofreading job.
+- Document Qwen3 and MLX Swift licenses in the app and distribution package before enabling proofreading in a public build.
+- Add checksum verification for the Qwen MLX files; current implementation checks exact file sizes only.
+- Keep the `OUTPUT_JSON:` prompt contract. The parser may accept a raw JSON array, fenced `json` block, or common object wrappers like `{"output":[...]}` only when the decoded string count exactly matches the input cue count. Never accept echoed input JSON from the prompt as a successful model response.
 - After proofreading, compare original and improved cue text and show the changed cue count on the finished screen, e.g. `1243 исправления` / `1243 corrections`. This is user-facing result metadata, not diagnostic logging.
 - Diagnostic logs must not be shown on the main surface. Use the top `Диагностика` / `Diagnostics` menu to open `~/Library/Application Support/WhisperDrop/Logs/WhisperDrop.log` or reveal its folder. Logs may include counts, chunk numbers, runtime mode, fallback paths, and errors, but must not include raw subtitle text.
 
 ### Subtitle proofreading stabilization
 
-- Pin and vendor llama.cpp/Metal as a reproducible runtime dependency instead of opportunistically copying whichever Homebrew version is installed on the build machine.
-- Keep Metal acceleration opportunistic with CPU fallback until a packaged-runtime smoke test passes. If llama.cpp Metal remains unstable, evaluate MLX/MLX Swift or a statically built llama.cpp runtime pinned to a known-good commit.
+- Keep MLX Swift and the MLX model manifest pinned to known-good versions and smoke-test a packaged application on Apple Silicon before release.
 - Add regression tests for the prompt contract: JSON array only, same cue count, same order, no translation, no meaning rewrite.
 - Add chunking tests for long subtitle files, escaped quotes, emojis, multiline cues, Russian/English mixed text, and malformed model output.
 - Add a visual diff model so the proofreading screen can highlight only actually corrected words, not just the currently processed word.

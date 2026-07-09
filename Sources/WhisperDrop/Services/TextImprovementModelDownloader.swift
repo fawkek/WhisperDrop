@@ -7,47 +7,71 @@ enum TextImprovementModelDownloader {
             withIntermediateDirectories: true
         )
 
-        if fileSize(TextImprovementModelLocator.modelFile) == TextImprovementModelLocator.expectedDownloadBytes {
-            progress(TextImprovementModelLocator.expectedDownloadBytes, TextImprovementModelLocator.expectedDownloadBytes)
-            return
-        }
-
-        let partial = TextImprovementModelLocator.partialFile
-        if fileSize(partial) > TextImprovementModelLocator.expectedDownloadBytes {
-            try FileManager.default.removeItem(at: partial)
-        }
-
-        var retry = 0
-        while fileSize(partial) < TextImprovementModelLocator.expectedDownloadBytes {
+        for file in TextImprovementModelLocator.files {
             try Task.checkCancellation()
-            do {
-                let transfer = ResumableFileTransfer()
-                try await transfer.download(
-                    from: TextImprovementModelLocator.downloadURL,
-                    to: partial,
-                    expectedBytes: TextImprovementModelLocator.expectedDownloadBytes
-                ) { receivedBytes in
-                    progress(receivedBytes, TextImprovementModelLocator.expectedDownloadBytes)
-                }
-            } catch {
-                if Task.isCancelled { throw CancellationError() }
-                retry += 1
-                guard retry <= 5 else { throw error }
-                let delay = min(16, 1 << (retry - 1))
-                try await Task.sleep(for: .seconds(delay))
+            let final = TextImprovementModelLocator.fileURL(file)
+            let partial = TextImprovementModelLocator.partialURL(file)
+            if TextImprovementModelLocator.fileSize(final) == file.expectedBytes {
+                progress(TextImprovementModelLocator.downloadedBytes, TextImprovementModelLocator.expectedDownloadBytes)
+                continue
             }
+            if TextImprovementModelLocator.fileSize(partial) > file.expectedBytes {
+                try FileManager.default.removeItem(at: partial)
+            }
+
+            var retry = 0
+            while TextImprovementModelLocator.fileSize(partial) < file.expectedBytes {
+                try Task.checkCancellation()
+                do {
+                    let completedBeforeFile = completedBytes(before: file)
+                    let transfer = ResumableFileTransfer()
+                    try await transfer.download(
+                        from: TextImprovementModelLocator.downloadURL(file),
+                        to: partial,
+                        expectedBytes: file.expectedBytes
+                    ) { receivedBytes in
+                        progress(
+                            min(TextImprovementModelLocator.expectedDownloadBytes, completedBeforeFile + receivedBytes),
+                            TextImprovementModelLocator.expectedDownloadBytes
+                        )
+                    }
+                } catch {
+                    if Task.isCancelled { throw CancellationError() }
+                    retry += 1
+                    guard retry <= 5 else { throw error }
+                    try await Task.sleep(for: .seconds(min(16, 1 << (retry - 1))))
+                }
+            }
+
+            if FileManager.default.fileExists(atPath: final.path) {
+                try FileManager.default.removeItem(at: final)
+            }
+            try FileManager.default.moveItem(at: partial, to: final)
+            progress(TextImprovementModelLocator.downloadedBytes, TextImprovementModelLocator.expectedDownloadBytes)
         }
 
-        if FileManager.default.fileExists(atPath: TextImprovementModelLocator.modelFile.path) {
-            try FileManager.default.removeItem(at: TextImprovementModelLocator.modelFile)
-        }
-        try FileManager.default.moveItem(at: partial, to: TextImprovementModelLocator.modelFile)
+        guard TextImprovementModelLocator.isInstalled else { throw CocoaError(.fileReadCorruptFile) }
+        removeLegacyGGUF()
         progress(TextImprovementModelLocator.expectedDownloadBytes, TextImprovementModelLocator.expectedDownloadBytes)
     }
 
-    private static func fileSize(_ url: URL) -> Int64 {
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        guard values?.isRegularFile == true else { return 0 }
-        return Int64(values?.fileSize ?? 0)
+    private static func completedBytes(before target: TextImprovementModelFile) -> Int64 {
+        var total: Int64 = 0
+        for file in TextImprovementModelLocator.files {
+            if file.name == target.name { break }
+            total += file.expectedBytes
+        }
+        return total
+    }
+
+    private static func removeLegacyGGUF() {
+        let legacy = TextImprovementModelLocator.legacyModelFile
+        guard FileManager.default.fileExists(atPath: legacy.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: legacy)
+            AppFileLog.write("Removed obsolete GGUF proofreading model after MLX installation")
+        } catch {
+            AppFileLog.write("Could not remove obsolete GGUF model: \(error.localizedDescription)")
+        }
     }
 }
