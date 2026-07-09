@@ -1,6 +1,11 @@
 import Foundation
 
 actor TextImprovementService {
+    private enum InferenceMode {
+        case metal
+        case cpu
+    }
+
     struct RuntimeUnavailableError: LocalizedError {
         var errorDescription: String? {
             AppText.pick(
@@ -50,12 +55,9 @@ actor TextImprovementService {
                 try await Task.sleep(for: .milliseconds(28))
             }
 
-            let correctedTexts: [String]
-            do {
-                correctedTexts = try runModel(runtime: runtime, cues: chunk)
-            } catch is InvalidModelOutputError {
-                correctedTexts = chunk.map(\.text)
-            }
+            let correctedTexts = (try? runModel(runtime: runtime, cues: chunk, mode: .metal))
+                ?? (try? runModel(runtime: runtime, cues: chunk, mode: .cpu))
+                ?? chunk.map(\.text)
             guard correctedTexts.count == chunk.count else { throw InvalidModelOutputError() }
             improved.append(contentsOf: zip(chunk, correctedTexts).map { cue, text in
                 SubtitleCue(start: cue.start, end: cue.end, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -95,7 +97,7 @@ actor TextImprovementService {
         throw RuntimeUnavailableError()
     }
 
-    private func runModel(runtime: URL, cues: [SubtitleCue]) throws -> [String] {
+    private func runModel(runtime: URL, cues: [SubtitleCue], mode: InferenceMode) throws -> [String] {
         let input = cues.map(\.text)
         let inputData = try JSONEncoder().encode(input)
         let inputJSON = String(decoding: inputData, as: UTF8.self)
@@ -113,7 +115,7 @@ actor TextImprovementService {
 
         let process = Process()
         process.executableURL = runtime
-        process.arguments = [
+        var arguments = [
             "-m", TextImprovementModelLocator.modelFile.path,
             "--no-display-prompt",
             "--single-turn",
@@ -121,13 +123,16 @@ actor TextImprovementService {
             "--no-show-timings",
             "--color", "off",
             "--temp", "0",
-            "--device", "none",
-            "--fit", "off",
-            "--no-op-offload",
-            "-ngl", "0",
             "-n", "512",
             "-p", prompt
         ]
+        switch mode {
+        case .metal:
+            arguments.insert(contentsOf: ["-ngl", "99"], at: arguments.count - 2)
+        case .cpu:
+            arguments.insert(contentsOf: ["--device", "none", "--fit", "off", "--no-op-offload", "-ngl", "0"], at: arguments.count - 2)
+        }
+        process.arguments = arguments
         if let libraryPath = runtimeLibraryPath(for: runtime) {
             var environment = ProcessInfo.processInfo.environment
             environment["DYLD_LIBRARY_PATH"] = libraryPath

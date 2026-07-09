@@ -67,7 +67,7 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - Optional subtitle proofreading is also local-only. It uses the separate `Qwen/Qwen3-0.6B-GGUF` model file `Qwen3-0.6B-Q8_0.gguf` stored under `~/Library/Application Support/WhisperDrop/Models/TextImprovement`.
 - The Qwen proofreading model is Apache-2.0 and currently expected to be exactly `639,446,688` bytes. Keep it separate from the Whisper model and never require it for basic subtitle creation.
 - Qwen proofreading uses `llama-cli` from llama.cpp. The build script bundles a local Homebrew `llama.cpp` runtime into `WhisperDrop.app/Contents/Resources/LLMRuntime` when available, including the required `ggml` `libexec` backend plugins, patches dylib references to `@rpath`, and ad-hoc signs the nested executable/libraries for development. At runtime, `TextImprovementService` checks bundled runtime first, Application Support runtime second, and Homebrew paths last.
-- Current Qwen inference is intentionally launched in CPU-safe mode (`--device none`, `-ngl 0`) because the current Homebrew/bundled llama.cpp runtime failed Metal initialization in local smoke tests. Do not re-enable Metal by only changing flags; first verify the packaged runtime can load Qwen and complete a proofreading prompt without crashing or hanging.
+- Qwen inference attempts Metal first (`-ngl 99`) and automatically retries the same chunk in CPU-safe mode (`--device none`, `-ngl 0`) if the Metal run exits with an error/crash or returns an invalid format. Local smoke tests showed the current Homebrew/bundled llama.cpp runtime can see `MTL0: Apple M3` but fails to create a Metal command queue, so CPU fallback is expected on this machine until the runtime is replaced or rebuilt.
 - Before public release, pin the llama.cpp version, verify clean-machine launch, and sign/notarize the nested runtime with the same release identity as the app.
 - Qwen proofreading must preserve cue count, order, start times, and end times. It may change only text spelling, punctuation, capitalization, and spacing. Do not translate, summarize, or rewrite meaning.
 
@@ -235,7 +235,7 @@ Treat the following as required release work, not optional polish:
 ### Subtitle proofreading stabilization
 
 - Pin and vendor llama.cpp/Metal as a reproducible runtime dependency instead of opportunistically copying whichever Homebrew version is installed on the build machine.
-- Restore Metal acceleration only after a packaged-runtime smoke test passes. If llama.cpp Metal remains unstable, evaluate MLX/MLX Swift or a statically built llama.cpp runtime pinned to a known-good commit.
+- Keep Metal acceleration opportunistic with CPU fallback until a packaged-runtime smoke test passes. If llama.cpp Metal remains unstable, evaluate MLX/MLX Swift or a statically built llama.cpp runtime pinned to a known-good commit.
 - Add regression tests for the prompt contract: JSON array only, same cue count, same order, no translation, no meaning rewrite.
 - Add chunking tests for long subtitle files, escaped quotes, emojis, multiline cues, Russian/English mixed text, and malformed model output.
 - Add a visual diff model so the proofreading screen can highlight only actually corrected words, not just the currently processed word.
