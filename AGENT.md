@@ -66,7 +66,8 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - Transcription is on-device. Media must never be uploaded to a remote service.
 - Optional subtitle proofreading is also local-only. It uses the separate `Qwen/Qwen3-0.6B-GGUF` model file `Qwen3-0.6B-Q8_0.gguf` stored under `~/Library/Application Support/WhisperDrop/Models/TextImprovement`.
 - The Qwen proofreading model is Apache-2.0 and currently expected to be exactly `639,446,688` bytes. Keep it separate from the Whisper model and never require it for basic subtitle creation.
-- Qwen proofreading uses `llama-cli` from llama.cpp. The build script bundles a local Homebrew `llama.cpp` runtime into `WhisperDrop.app/Contents/Resources/LLMRuntime` when available, patches dylib references to `@rpath`, and ad-hoc signs the nested executable/libraries for development. At runtime, `TextImprovementService` checks bundled runtime first, Application Support runtime second, and Homebrew paths last.
+- Qwen proofreading uses `llama-cli` from llama.cpp. The build script bundles a local Homebrew `llama.cpp` runtime into `WhisperDrop.app/Contents/Resources/LLMRuntime` when available, including the required `ggml` `libexec` backend plugins, patches dylib references to `@rpath`, and ad-hoc signs the nested executable/libraries for development. At runtime, `TextImprovementService` checks bundled runtime first, Application Support runtime second, and Homebrew paths last.
+- Current Qwen inference is intentionally launched in CPU-safe mode (`--device none`, `-ngl 0`) because the current Homebrew/bundled llama.cpp runtime failed Metal initialization in local smoke tests. Do not re-enable Metal by only changing flags; first verify the packaged runtime can load Qwen and complete a proofreading prompt without crashing or hanging.
 - Before public release, pin the llama.cpp version, verify clean-machine launch, and sign/notarize the nested runtime with the same release identity as the app.
 - Qwen proofreading must preserve cue count, order, start times, and end times. It may change only text spelling, punctuation, capitalization, and spacing. Do not translate, summarize, or rewrite meaning.
 
@@ -227,10 +228,12 @@ Treat the following as required release work, not optional polish:
 - Document model and WhisperKit licenses in the app and distribution package.
 - Document Qwen3 model license and llama.cpp/runtime license in the app and distribution package before enabling proofreading in a public build.
 - Add checksum verification for the Qwen GGUF file; current implementation checks exact size only.
+- The Qwen CLI invocation must be one-shot. Keep `--single-turn`, `--reasoning off`, no timings/color, and parse only the final `OUTPUT_JSON:` marker. Never accept echoed input JSON from the prompt as a successful model response.
 
 ### Subtitle proofreading stabilization
 
 - Pin and vendor llama.cpp/Metal as a reproducible runtime dependency instead of opportunistically copying whichever Homebrew version is installed on the build machine.
+- Restore Metal acceleration only after a packaged-runtime smoke test passes. If llama.cpp Metal remains unstable, evaluate MLX/MLX Swift or a statically built llama.cpp runtime pinned to a known-good commit.
 - Add regression tests for the prompt contract: JSON array only, same cue count, same order, no translation, no meaning rewrite.
 - Add chunking tests for long subtitle files, escaped quotes, emojis, multiline cues, Russian/English mixed text, and malformed model output.
 - Add a visual diff model so the proofreading screen can highlight only actually corrected words, not just the currently processed word.

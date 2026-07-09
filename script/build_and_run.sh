@@ -50,7 +50,8 @@ bundle_llm_runtime() {
   local runtime="$APP_RESOURCES/LLMRuntime"
   local runtime_bin="$runtime/bin"
   local runtime_lib="$runtime/lib"
-  mkdir -p "$runtime_bin" "$runtime_lib"
+  local runtime_libexec="$runtime/libexec"
+  mkdir -p "$runtime_bin" "$runtime_lib" "$runtime_libexec"
   cp "$llama_prefix/bin/llama-cli" "$runtime_bin/llama-cli"
   chmod +x "$runtime_bin/llama-cli"
 
@@ -68,10 +69,16 @@ bundle_llm_runtime() {
   for lib in "${libs[@]}"; do
     [[ -f "$lib" ]] && cp -L "$lib" "$runtime_lib/$(basename "$lib")"
   done
+  if [[ -d "$ggml_prefix/libexec" ]]; then
+    while IFS= read -r backend; do
+      cp -L "$backend" "$runtime_libexec/$(basename "$backend")"
+    done < <(find "$ggml_prefix/libexec" -type f \( -name "*.so" -o -name "*.dylib" \) | sort)
+  fi
 
   install_name_tool -add_rpath "@executable_path/../lib" "$runtime_bin/llama-cli" 2>/dev/null || true
   local patch_targets=("$runtime_bin/llama-cli")
   while IFS= read -r dylib; do patch_targets+=("$dylib"); done < <(find "$runtime_lib" -type f -name "*.dylib" | sort)
+  while IFS= read -r backend; do patch_targets+=("$backend"); done < <(find "$runtime_libexec" -type f \( -name "*.so" -o -name "*.dylib" \) | sort)
   for target in "${patch_targets[@]}"; do
     if [[ "$target" == *.dylib ]]; then
       install_name_tool -id "@rpath/$(basename "$target")" "$target" 2>/dev/null || true

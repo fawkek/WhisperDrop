@@ -29,6 +29,7 @@ final class AppStore {
     var improvementDownloadTotalBytes: Int64 = TextImprovementModelLocator.expectedDownloadBytes
     var improvementDownloadError: String?
     var improvementWord: String = ""
+    private var shouldImproveAfterModelDownload = false
     var selectedFile: URL?
     var cues: [SubtitleCue] = []
     var exportFormat: SubtitleFormat = .srt {
@@ -62,15 +63,29 @@ final class AppStore {
 
     func chooseFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.movie, .audio, .mpeg4Movie, .quickTimeMovie]
+        panel.allowedContentTypes = [
+            .movie,
+            .audio,
+            .mpeg4Movie,
+            .quickTimeMovie,
+            .plainText,
+            UTType(filenameExtension: "srt") ?? .plainText,
+            UTType(filenameExtension: "vtt") ?? .plainText,
+            UTType(filenameExtension: "ass") ?? .plainText
+        ]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         start(url)
     }
 
     func start(_ url: URL) {
+        if SubtitleImporter.isSubtitleFile(url) {
+            loadSubtitlesForImprovement(url)
+            return
+        }
         guard ModelLocator.isInstalled else { phase = .needsModel; return }
         workTask?.cancel()
+        shouldImproveAfterModelDownload = false
         selectedFile = url
         cues = []
         progress = 0
@@ -97,6 +112,29 @@ final class AppStore {
             } catch {
                 phase = .failed(error.localizedDescription)
             }
+        }
+    }
+
+    private func loadSubtitlesForImprovement(_ url: URL) {
+        workTask?.cancel()
+        selectedFile = url
+        progress = 0
+        improvementWord = ""
+        do {
+            cues = try SubtitleImporter.load(url)
+            exportFormat = SubtitleImporter.format(for: url)
+            if TextImprovementModelLocator.isInstalled {
+                shouldImproveAfterModelDownload = false
+                improveSubtitles()
+            } else {
+                shouldImproveAfterModelDownload = true
+                improvementDownloadError = nil
+                improvementDownloadBytes = TextImprovementModelLocator.downloadedBytes
+                improvementDownloadTotalBytes = TextImprovementModelLocator.expectedDownloadBytes
+                phase = .needsImprovementModel
+            }
+        } catch {
+            phase = .failed(error.localizedDescription)
         }
     }
 
@@ -145,6 +183,7 @@ final class AppStore {
         if wasDownloading {
             phase = .needsModel
         } else if wasNeedsImprovementModel || wasImprovementDownload || wasImproving {
+            shouldImproveAfterModelDownload = false
             phase = cues.isEmpty ? .ready : .finished
         } else {
             phase = ModelLocator.isInstalled ? .ready : .needsModel
@@ -157,6 +196,7 @@ final class AppStore {
 
     func improveSubtitles() {
         guard !cues.isEmpty else { return }
+        shouldImproveAfterModelDownload = false
         guard TextImprovementModelLocator.isInstalled else {
             improvementDownloadError = nil
             improvementDownloadBytes = TextImprovementModelLocator.downloadedBytes
@@ -220,7 +260,12 @@ final class AppStore {
                 guard operationID == id else { return }
                 progress = 1
                 improvementDownloadBytes = improvementDownloadTotalBytes
-                phase = .finished
+                if shouldImproveAfterModelDownload {
+                    shouldImproveAfterModelDownload = false
+                    improveSubtitles()
+                } else {
+                    phase = .finished
+                }
             } catch is CancellationError {
                 guard operationID == id else { return }
                 phase = .needsImprovementModel
@@ -252,6 +297,7 @@ final class AppStore {
         cues = []
         progress = 0
         improvementWord = ""
+        shouldImproveAfterModelDownload = false
         phase = .ready
     }
 }

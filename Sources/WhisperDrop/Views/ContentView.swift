@@ -136,9 +136,9 @@ private struct FileDropView: View {
                 VStack(spacing: 6) {
                     Text(isTargeted
                          ? AppText.pick("Отпустите файл", "Drop the file")
-                         : AppText.pick("Перетащите видео или аудио", "Drop video or audio"))
+                         : AppText.pick("Перетащите видео, аудио или субтитры", "Drop video, audio, or subtitles"))
                         .font(.system(size: 17, weight: .semibold))
-                    Text(AppText.pick("Файл останется на вашем Mac", "The file stays on your Mac"))
+                    Text(AppText.pick("Видео распознается, субтитры сразу отправятся на исправление", "Video is transcribed; subtitles go straight to proofreading"))
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
@@ -411,7 +411,6 @@ private struct WordFlowView: View {
                 endPoint: .bottom
             )
         }
-        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 14))
     }
 }
 

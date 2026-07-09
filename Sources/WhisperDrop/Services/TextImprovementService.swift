@@ -39,10 +39,15 @@ actor TextImprovementService {
         for chunkIndex in chunks.indices {
             try Task.checkCancellation()
             let chunk = chunks[chunkIndex]
-            for cue in chunk {
-                for word in cue.text.split(whereSeparator: \.isWhitespace).prefix(12) {
-                    progress(Double(chunkIndex) / Double(max(1, chunks.count)), String(word))
-                }
+            let previewWords = chunk.flatMap { $0.text.split(whereSeparator: \.isWhitespace).map(String.init) }
+            let previewLimit = max(1, min(previewWords.count, 24))
+            for wordIndex in 0..<previewLimit {
+                try Task.checkCancellation()
+                let chunkBase = Double(chunkIndex) / Double(max(1, chunks.count))
+                let chunkSpan = 1.0 / Double(max(1, chunks.count))
+                let visibleProgress = chunkBase + chunkSpan * 0.18 * Double(wordIndex + 1) / Double(previewLimit)
+                progress(visibleProgress, previewWords[wordIndex])
+                try await Task.sleep(for: .milliseconds(28))
             }
 
             let correctedTexts = try runModel(runtime: runtime, cues: chunk)
@@ -94,6 +99,7 @@ actor TextImprovementService {
         Return ONLY a valid JSON array of strings. The array length and order must match the input.
         Fix only spelling, punctuation, capitalization, and spacing.
         Do not translate. Do not rewrite meaning. Do not add explanations.
+        Start your answer with OUTPUT_JSON: followed by the JSON array.
 
         Input JSON:
         \(inputJSON)
@@ -104,9 +110,16 @@ actor TextImprovementService {
         process.arguments = [
             "-m", TextImprovementModelLocator.modelFile.path,
             "--no-display-prompt",
+            "--single-turn",
+            "--reasoning", "off",
+            "--no-show-timings",
+            "--color", "off",
             "--temp", "0",
-            "-ngl", "99",
-            "-n", "2048",
+            "--device", "none",
+            "--fit", "off",
+            "--no-op-offload",
+            "-ngl", "0",
+            "-n", "512",
             "-p", prompt
         ]
         if let libraryPath = runtimeLibraryPath(for: runtime) {
@@ -116,23 +129,21 @@ actor TextImprovementService {
         }
 
         let output = Pipe()
-        let error = Pipe()
         process.standardOutput = output
-        process.standardError = error
+        process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
 
         let outputText = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         guard process.terminationStatus == 0 else {
-            let errorText = String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             throw NSError(
                 domain: "WhisperDrop.TextImprovement",
                 code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: errorText.isEmpty ? outputText : errorText]
+                userInfo: [NSLocalizedDescriptionKey: outputText.isEmpty ? "llama-cli exited with code \(process.terminationStatus)" : outputText]
             )
         }
 
-        guard let json = extractJSONArray(from: outputText),
+        guard let json = extractOutputJSONArray(from: outputText),
               let data = json.data(using: .utf8),
               let decoded = try? JSONDecoder().decode([String].self, from: data) else {
             throw InvalidModelOutputError()
@@ -146,11 +157,36 @@ actor TextImprovementService {
         return FileManager.default.fileExists(atPath: library.path) ? library.path : nil
     }
 
-    private func extractJSONArray(from text: String) -> String? {
-        guard let start = text.firstIndex(of: "["),
-              let end = text.lastIndex(of: "]"),
-              start <= end else { return nil }
-        return String(text[start...end])
+    private func extractOutputJSONArray(from text: String) -> String? {
+        guard let markerRange = text.range(of: "OUTPUT_JSON:", options: .backwards) else { return nil }
+        let tail = text[markerRange.upperBound...]
+        let trimmed = tail.drop(while: { $0.isWhitespace || $0.isNewline })
+        guard trimmed.first == "[", let start = trimmed.firstIndex(of: "[") else { return nil }
+        var depth = 0
+        var isEscaped = false
+        var isInsideString = false
+        for index in trimmed[start...].indices {
+            let character = trimmed[index]
+            if isEscaped {
+                isEscaped = false
+                continue
+            }
+            if character == "\\" {
+                isEscaped = true
+                continue
+            }
+            if character == "\"" {
+                isInsideString.toggle()
+                continue
+            }
+            guard !isInsideString else { continue }
+            if character == "[" { depth += 1 }
+            if character == "]" {
+                depth -= 1
+                if depth == 0 { return String(trimmed[start...index]) }
+            }
+        }
+        return nil
     }
 }
 
