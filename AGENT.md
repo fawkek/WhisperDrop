@@ -16,6 +16,7 @@ WhisperDrop is a focused native macOS utility that creates subtitle files locall
 3. After accepting a file, remove the drop field completely.
 4. Show transcription animation, progress, and file name. Do not show a live line count.
 5. When complete, show the exact cue count, format and encoding controls, and allow saving the selected output.
+6. From the finished state, offer subtitle proofreading as a separate optional flow.
 
 Speech language is always auto-detected. The finished state offers SRT, WebVTT, ASS, and TXT plus common encodings. Defaults remain SRT and UTF-8; WebVTT is always UTF-8.
 Format and encoding controls must open their choices directly. Use direct menu buttons with a checkmark for the current value; do not wrap a Picker inside a Menu or draw a second custom disclosure arrow.
@@ -63,6 +64,11 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - Recover an oversized weight file only when the SHA-256 of its official-length prefix matches the Hugging Face LFS hash: truncate the verified duplicate tail and remove the stale `.partial`. Never repair an oversized file based on size alone.
 - Cancelling a model download must always return to `needsModel`, even if cached or partially downloaded files exist. A stale download task must never advance the UI to `ready` after cancellation.
 - Transcription is on-device. Media must never be uploaded to a remote service.
+- Optional subtitle proofreading is also local-only. It uses the separate `Qwen/Qwen3-0.6B-GGUF` model file `Qwen3-0.6B-Q8_0.gguf` stored under `~/Library/Application Support/WhisperDrop/Models/TextImprovement`.
+- The Qwen proofreading model is Apache-2.0 and currently expected to be exactly `639,446,688` bytes. Keep it separate from the Whisper model and never require it for basic subtitle creation.
+- Qwen proofreading uses `llama-cli` from llama.cpp. The build script bundles a local Homebrew `llama.cpp` runtime into `WhisperDrop.app/Contents/Resources/LLMRuntime` when available, patches dylib references to `@rpath`, and ad-hoc signs the nested executable/libraries for development. At runtime, `TextImprovementService` checks bundled runtime first, Application Support runtime second, and Homebrew paths last.
+- Before public release, pin the llama.cpp version, verify clean-machine launch, and sign/notarize the nested runtime with the same release identity as the app.
+- Qwen proofreading must preserve cue count, order, start times, and end times. It may change only text spelling, punctuation, capitalization, and spacing. Do not translate, summarize, or rewrite meaning.
 
 `ModelLocator.swift` is the single source of truth for model paths and installation checks. Application Support is the permanent no-prompt model store; no folder-permission onboarding window is needed.
 
@@ -75,6 +81,9 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - `Services/AudioExtractor.swift`: converts unsupported video containers to temporary M4A with AVFoundation.
 - `Services/TranscriptionService.swift`: WhisperKit setup, transcription, download, and progress callbacks.
 - `Services/ModelLocator.swift`: model/tokenizer locations.
+- `Services/TextImprovementModelLocator.swift`: Qwen proofreading model location, size, and download URL.
+- `Services/TextImprovementModelDownloader.swift`: resumable download of the Qwen GGUF model.
+- `Services/TextImprovementService.swift`: local subtitle proofreading orchestration through bundled/Application Support/Homebrew `llama-cli`.
 - `Support/SRTFormatter.swift`: deterministic UTF-8 SRT rendering and timestamp formatting.
 - `Support/SubtitleExporter.swift`: SRT, WebVTT, ASS, and TXT rendering plus byte encoding/BOM handling.
 - `Support/WhisperTextSanitizer.swift`: removes Whisper control and timestamp tokens from decoded text.
@@ -95,9 +104,14 @@ Keep business logic out of SwiftUI views. SwiftUI owns presentation; `AppStore` 
 - `preparing`
 - `transcribing`
 - `finished`
+- `needsImprovementModel`
+- `downloadingImprovementModel`
+- `improvingSubtitles`
 - `failed(String)`
 
 Only one phase surface should be visible at a time. Dropping another file while work is active is rejected. Escape cancels active work. Command-O opens media. Command-S saves after completion.
+
+Cancelling the Qwen model download or proofreading returns to the finished subtitle screen, not to the initial file drop screen. Downloading the Qwen model after transcription also returns to the finished screen; the user must explicitly press proofreading again.
 
 ## Subtitle correctness
 
@@ -134,6 +148,7 @@ Transcription progress must use `WhisperKit.progress.fractionCompleted`. `Transc
 - Interpolate circular progress changes with a short smooth animation so WhisperKit's chunk-level progress updates never appear as abrupt jumps.
 - The transcription screen has one progress visualization only: the circular ring. Show the numeric percentage below its title and a separate Cancel action; do not add a duplicate linear progress bar or explanatory line-count placeholder.
 - The finished screen shows exact cue count, format, and encoding in one compact row. Format and encoding menus open their choices directly and show a checkmark on the selected item. Never nest a `Picker` inside these `Menu` controls and never draw a second disclosure chevron.
+- The finished screen may show `Исправить субтитры` / `Proofread subtitles` as a secondary action. If the Qwen model is missing, show a concise model-download screen analogous to the Whisper model setup screen. If the model exists, show a dedicated proofreading progress screen with one circular progress indicator and a bottom-up word flow; changed words can be highlighted later when the runtime returns reliable diff data.
 
 ## Window glass implementation
 
@@ -183,6 +198,7 @@ Treat the following as required release work, not optional polish:
 - Run end-to-end tests on short, long, silent, noisy, multilingual, variable-frame-rate, and multi-audio-track media.
 - Compare exported SRT timestamps against playback and verify monotonic, non-overlapping cues.
 - Define cue splitting limits for maximum characters, reading speed, and line count instead of relying only on raw Whisper segments.
+- Add deterministic subtitle post-processing before/alongside Qwen: max line length, max two visual lines per cue, reading-speed limits, pause-aware splitting from word timestamps, and dialogue line breaks where safe.
 - Detect and suppress repeated hallucinated phrases during silence or credits.
 - Preserve exact final cue count separately from the live draft estimate.
 - Add regression fixtures and tests for Russian, English, mixed speech, punctuation, Unicode, and hour-long timestamps.
@@ -209,6 +225,16 @@ Treat the following as required release work, not optional polish:
 - Verify downloaded files with expected size and cryptographic checksum before loading.
 - Support resume, atomic installation, migration, corruption recovery, and deletion from settings.
 - Document model and WhisperKit licenses in the app and distribution package.
+- Document Qwen3 model license and llama.cpp/runtime license in the app and distribution package before enabling proofreading in a public build.
+- Add checksum verification for the Qwen GGUF file; current implementation checks exact size only.
+
+### Subtitle proofreading stabilization
+
+- Pin and vendor llama.cpp/Metal as a reproducible runtime dependency instead of opportunistically copying whichever Homebrew version is installed on the build machine.
+- Add regression tests for the prompt contract: JSON array only, same cue count, same order, no translation, no meaning rewrite.
+- Add chunking tests for long subtitle files, escaped quotes, emojis, multiline cues, Russian/English mixed text, and malformed model output.
+- Add a visual diff model so the proofreading screen can highlight only actually corrected words, not just the currently processed word.
+- Decide whether proofreading should overwrite `cues` immediately or keep original/improved variants with a compare/revert action.
 
 ### Sandbox and file access
 

@@ -16,6 +16,10 @@ struct ContentView: View {
                 TranscribingView(store: store)
             case .finished:
                 TranscriptionFinishedView(store: store)
+            case .needsImprovementModel, .downloadingImprovementModel:
+                ImprovementModelSetupView(store: store)
+            case .improvingSubtitles:
+                ImprovingSubtitlesView(store: store)
             case let .failed(message):
                 FailureView(message: message, retry: store.reset)
             }
@@ -224,6 +228,7 @@ private struct TranscriptionFinishedView: View {
 
             HStack(spacing: 8) {
                 Button(AppText.pick("Другой файл", "Another file"), action: store.reset)
+                Button(AppText.pick("Исправить субтитры", "Proofread subtitles"), action: store.improveSubtitles)
                 Button(action: store.save) {
                     HStack(spacing: 8) {
                         Text(AppText.pick("Сохранить…", "Save…"))
@@ -238,6 +243,175 @@ private struct TranscriptionFinishedView: View {
 
     private var availableEncodings: [SubtitleEncoding] {
         store.exportFormat.requiresUTF8 ? [.utf8] : SubtitleEncoding.allCases
+    }
+}
+
+private struct ImprovementModelSetupView: View {
+    let store: AppStore
+
+    var body: some View {
+        StateLayout {
+            VStack(spacing: 20) {
+                Image(systemName: "text.badge.checkmark")
+                    .font(.system(size: 40, weight: .light))
+                    .foregroundStyle(Color.accentColor)
+
+                VStack(spacing: 6) {
+                    Text(store.phase == .downloadingImprovementModel
+                         ? AppText.pick("Загрузка модели правки", "Downloading proofreading model")
+                         : AppText.pick("Модель для исправления", "Proofreading model"))
+                        .font(.system(size: 17, weight: .semibold))
+
+                    Text(TextImprovementModelLocator.displayName)
+                        .font(.system(size: 13, weight: .medium))
+
+                    Text(TextImprovementModelLocator.description)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 340)
+                }
+
+                if store.phase == .downloadingImprovementModel {
+                    VStack(spacing: 10) {
+                        ProgressView(value: store.progress).frame(width: 280)
+                        HStack {
+                            Text(AppText.pick(
+                                "Загружено \(byteCount(store.improvementDownloadBytes)) из \(byteCount(store.improvementDownloadTotalBytes))",
+                                "Downloaded \(byteCount(store.improvementDownloadBytes)) of \(byteCount(store.improvementDownloadTotalBytes))"
+                            ))
+                            Spacer()
+                            Text("\(Int(store.progress * 100))%")
+                        }
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 280)
+                        .contentTransition(.numericText())
+                    }
+                    Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+                } else {
+                    Label(byteCount(TextImprovementModelLocator.expectedDownloadBytes), systemImage: "internaldrive")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+
+                    if let error = store.improvementDownloadError {
+                        Label {
+                            Text(error)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                        }
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: 320)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button(AppText.pick("Назад", "Back")) {
+                            store.cancel()
+                        }
+                        Button(
+                            store.improvementDownloadError == nil
+                                ? AppText.pick("Скачать модель", "Download model")
+                                : AppText.pick("Повторить загрузку", "Retry download"),
+                            systemImage: "arrow.down",
+                            action: store.downloadImprovementModel
+                        )
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .controlSize(.large)
+                }
+            }
+        }
+    }
+
+    private func byteCount(_ bytes: Int64) -> String {
+        if bytes == 0 { return "0 MB" }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+}
+
+private struct ImprovingSubtitlesView: View {
+    let store: AppStore
+    @State private var words: [String] = []
+
+    var body: some View {
+        StateLayout {
+            VStack(spacing: 20) {
+                ZStack {
+                    Circle().stroke(.quaternary, lineWidth: 7)
+                    Circle()
+                        .trim(from: 0, to: max(0.02, min(1, store.progress)))
+                        .stroke(
+                            LinearGradient(
+                                colors: [.blue, .cyan],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            style: StrokeStyle(lineWidth: 7, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                    Text("\(Int(store.progress * 100))%")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                }
+                .frame(width: 86, height: 86)
+
+                VStack(spacing: 6) {
+                    Text(AppText.pick("Исправление субтитров…", "Proofreading subtitles…"))
+                        .font(.system(size: 17, weight: .semibold))
+                    Text(TextImprovementModelLocator.displayName)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+
+                WordFlowView(words: words)
+                    .frame(width: 330, height: 92)
+
+                Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+            }
+        }
+        .onChange(of: store.improvementWord) { _, word in
+            guard !word.isEmpty else { return }
+            withAnimation(.easeOut(duration: 0.22)) {
+                words.append(word)
+                if words.count > 18 { words.removeFirst(words.count - 18) }
+            }
+        }
+    }
+}
+
+private struct WordFlowView: View {
+    let words: [String]
+
+    var body: some View {
+        VStack(spacing: 7) {
+            ForEach(Array(words.suffix(8).enumerated()), id: \.offset) { index, word in
+                Text(word)
+                    .font(.system(size: index == words.suffix(8).count - 1 ? 15 : 13, weight: index == words.suffix(8).count - 1 ? .semibold : .regular))
+                    .foregroundStyle(index == words.suffix(8).count - 1 ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                    .padding(.horizontal, 9)
+                    .frame(height: 20)
+                    .background(index == words.suffix(8).count - 1 ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.clear), in: Capsule())
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .mask {
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: 0.25),
+                    .init(color: .black, location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 14))
     }
 }
 

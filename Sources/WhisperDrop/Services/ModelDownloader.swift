@@ -188,7 +188,7 @@ enum ModelDownloader {
     }
 }
 
-private final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private struct ResumeRejectedError: LocalizedError {
         var errorDescription: String? {
             AppText.pick(

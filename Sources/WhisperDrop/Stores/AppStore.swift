@@ -14,6 +14,9 @@ final class AppStore {
         case preparing
         case transcribing
         case finished
+        case needsImprovementModel
+        case downloadingImprovementModel
+        case improvingSubtitles
         case failed(String)
     }
 
@@ -22,6 +25,10 @@ final class AppStore {
     var downloadedModelBytes: Int64 = 0
     var modelDownloadTotalBytes: Int64 = ModelLocator.expectedDownloadBytes
     var modelDownloadError: String?
+    var improvementDownloadBytes: Int64 = TextImprovementModelLocator.downloadedBytes
+    var improvementDownloadTotalBytes: Int64 = TextImprovementModelLocator.expectedDownloadBytes
+    var improvementDownloadError: String?
+    var improvementWord: String = ""
     var selectedFile: URL?
     var cues: [SubtitleCue] = []
     var exportFormat: SubtitleFormat = .srt {
@@ -31,11 +38,12 @@ final class AppStore {
     }
     var exportEncoding: SubtitleEncoding = .utf8
     private let service = TranscriptionService()
+    private let improvementService = TextImprovementService()
     private var workTask: Task<Void, Never>?
     private var operationID = UUID()
 
     var isWorking: Bool {
-        [.downloading, .preparing, .transcribing].contains(phase)
+        [.downloading, .preparing, .transcribing, .downloadingImprovementModel, .improvingSubtitles].contains(phase)
     }
 
     func accept(providers: [NSItemProvider]) -> Bool {
@@ -128,12 +136,100 @@ final class AppStore {
 
     func cancel() {
         let wasDownloading = phase == .downloading
+        let wasNeedsImprovementModel = phase == .needsImprovementModel
+        let wasImprovementDownload = phase == .downloadingImprovementModel
+        let wasImproving = phase == .improvingSubtitles
         operationID = UUID()
         workTask?.cancel()
         workTask = nil
-        phase = wasDownloading ? .needsModel : (ModelLocator.isInstalled ? .ready : .needsModel)
+        if wasDownloading {
+            phase = .needsModel
+        } else if wasNeedsImprovementModel || wasImprovementDownload || wasImproving {
+            phase = cues.isEmpty ? .ready : .finished
+        } else {
+            phase = ModelLocator.isInstalled ? .ready : .needsModel
+        }
         progress = 0
         if wasDownloading { downloadedModelBytes = 0 }
+        if wasImprovementDownload { improvementDownloadBytes = TextImprovementModelLocator.downloadedBytes }
+        if wasImproving { improvementWord = "" }
+    }
+
+    func improveSubtitles() {
+        guard !cues.isEmpty else { return }
+        guard TextImprovementModelLocator.isInstalled else {
+            improvementDownloadError = nil
+            improvementDownloadBytes = TextImprovementModelLocator.downloadedBytes
+            improvementDownloadTotalBytes = TextImprovementModelLocator.expectedDownloadBytes
+            progress = min(1, Double(improvementDownloadBytes) / Double(improvementDownloadTotalBytes))
+            phase = .needsImprovementModel
+            return
+        }
+
+        let id = UUID()
+        operationID = id
+        progress = 0
+        improvementWord = ""
+        phase = .improvingSubtitles
+        workTask = Task {
+            do {
+                let improved = try await improvementService.improve(
+                    cues: cues,
+                    progress: { value, word in
+                        Task { @MainActor in
+                            guard self.operationID == id else { return }
+                            self.progress = value
+                            self.improvementWord = word
+                        }
+                    }
+                )
+                guard operationID == id else { return }
+                cues = improved
+                progress = 1
+                improvementWord = ""
+                phase = .finished
+            } catch is CancellationError {
+                guard operationID == id else { return }
+                phase = .finished
+            } catch {
+                guard operationID == id else { return }
+                phase = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func downloadImprovementModel() {
+        let id = UUID()
+        operationID = id
+        improvementDownloadError = nil
+        phase = .downloadingImprovementModel
+        improvementDownloadBytes = TextImprovementModelLocator.downloadedBytes
+        improvementDownloadTotalBytes = TextImprovementModelLocator.expectedDownloadBytes
+        progress = min(1, Double(improvementDownloadBytes) / Double(improvementDownloadTotalBytes))
+        workTask = Task {
+            do {
+                try await improvementService.downloadModel { value in
+                    Task { @MainActor in
+                        guard self.operationID == id else { return }
+                        self.improvementDownloadTotalBytes = value.totalBytes
+                        self.improvementDownloadBytes = value.downloadedBytes
+                        self.progress = value.fraction
+                    }
+                }
+                try Task.checkCancellation()
+                guard operationID == id else { return }
+                progress = 1
+                improvementDownloadBytes = improvementDownloadTotalBytes
+                phase = .finished
+            } catch is CancellationError {
+                guard operationID == id else { return }
+                phase = .needsImprovementModel
+            } catch {
+                guard operationID == id else { return }
+                improvementDownloadError = error.localizedDescription
+                phase = .needsImprovementModel
+            }
+        }
     }
 
     func save() {
@@ -155,6 +251,7 @@ final class AppStore {
         selectedFile = nil
         cues = []
         progress = 0
+        improvementWord = ""
         phase = .ready
     }
 }
