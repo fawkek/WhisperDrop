@@ -341,7 +341,7 @@ private struct ImprovingSubtitlesView: View {
 
     var body: some View {
         StateLayout {
-            VStack(spacing: 20) {
+            VStack(spacing: 18) {
                 ZStack {
                     Circle().stroke(.quaternary, lineWidth: 7)
                     Circle()
@@ -369,7 +369,8 @@ private struct ImprovingSubtitlesView: View {
                 }
 
                 WordFlowView(words: words)
-                    .frame(width: 330, height: 92)
+                    .frame(width: 330, height: 76)
+                    .clipped()
 
                 Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
             }
@@ -391,11 +392,11 @@ private struct WordFlowView: View {
         VStack(spacing: 7) {
             ForEach(Array(words.suffix(8).enumerated()), id: \.offset) { index, word in
                 Text(word)
-                    .font(.system(size: index == words.suffix(8).count - 1 ? 15 : 13, weight: index == words.suffix(8).count - 1 ? .semibold : .regular))
-                    .foregroundStyle(index == words.suffix(8).count - 1 ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                    .font(.system(size: index == visibleCount - 1 ? 15 : 13, weight: index == visibleCount - 1 ? .semibold : .regular))
+                    .foregroundStyle(index == visibleCount - 1 ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
                     .padding(.horizontal, 9)
                     .frame(height: 20)
-                    .background(index == words.suffix(8).count - 1 ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.clear), in: Capsule())
+                    .background(index == visibleCount - 1 ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.clear), in: Capsule())
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -404,13 +405,18 @@ private struct WordFlowView: View {
             LinearGradient(
                 stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.25),
-                    .init(color: .black, location: 1)
+                    .init(color: .black, location: 0.22),
+                    .init(color: .black, location: 0.78),
+                    .init(color: .clear, location: 1)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
         }
+    }
+
+    private var visibleCount: Int {
+        min(8, words.count)
     }
 }
 

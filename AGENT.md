@@ -150,6 +150,7 @@ Transcription progress must use `WhisperKit.progress.fractionCompleted`. `Transc
 - The transcription screen has one progress visualization only: the circular ring. Show the numeric percentage below its title and a separate Cancel action; do not add a duplicate linear progress bar or explanatory line-count placeholder.
 - The finished screen shows exact cue count, format, and encoding in one compact row. Format and encoding menus open their choices directly and show a checkmark on the selected item. Never nest a `Picker` inside these `Menu` controls and never draw a second disclosure chevron.
 - The finished screen may show `Исправить субтитры` / `Proofread subtitles` as a secondary action. If the Qwen model is missing, show a concise model-download screen analogous to the Whisper model setup screen. If the model exists, show a dedicated proofreading progress screen with one circular progress indicator and a bottom-up word flow; changed words can be highlighted later when the runtime returns reliable diff data.
+- The proofreading word flow must stay inside its own middle slot between title and Cancel button. It uses a top/bottom fade mask and clipping; it must not scroll under the title, progress ring, or controls.
 
 ## Window glass implementation
 
@@ -228,7 +229,7 @@ Treat the following as required release work, not optional polish:
 - Document model and WhisperKit licenses in the app and distribution package.
 - Document Qwen3 model license and llama.cpp/runtime license in the app and distribution package before enabling proofreading in a public build.
 - Add checksum verification for the Qwen GGUF file; current implementation checks exact size only.
-- The Qwen CLI invocation must be one-shot. Keep `--single-turn`, `--reasoning off`, no timings/color, and parse only the final `OUTPUT_JSON:` marker. Never accept echoed input JSON from the prompt as a successful model response.
+- The Qwen CLI invocation must be one-shot. Keep `--single-turn`, `--reasoning off`, no timings/color, and prefer the final `OUTPUT_JSON:` marker. The parser may accept a raw JSON array, fenced `json` block, or common object wrappers like `{"output":[...]}` only when the decoded string count exactly matches the input cue count. Never accept echoed input JSON from the prompt as a successful model response.
 
 ### Subtitle proofreading stabilization
 

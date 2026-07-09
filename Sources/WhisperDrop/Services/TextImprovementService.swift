@@ -143,9 +143,7 @@ actor TextImprovementService {
             )
         }
 
-        guard let json = extractOutputJSONArray(from: outputText),
-              let data = json.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+        guard let decoded = Self.decodeModelOutput(outputText, expectedCount: cues.count) else {
             throw InvalidModelOutputError()
         }
         return decoded
@@ -157,16 +155,110 @@ actor TextImprovementService {
         return FileManager.default.fileExists(atPath: library.path) ? library.path : nil
     }
 
-    private func extractOutputJSONArray(from text: String) -> String? {
-        guard let markerRange = text.range(of: "OUTPUT_JSON:", options: .backwards) else { return nil }
-        let tail = text[markerRange.upperBound...]
-        let trimmed = tail.drop(while: { $0.isWhitespace || $0.isNewline })
-        guard trimmed.first == "[", let start = trimmed.firstIndex(of: "[") else { return nil }
+    static func decodeModelOutput(_ text: String, expectedCount: Int) -> [String]? {
+        let candidates = jsonCandidates(from: text)
+        for candidate in candidates {
+            guard let data = candidate.data(using: .utf8) else { continue }
+            if let strings = try? JSONDecoder().decode([String].self, from: data),
+               strings.count == expectedCount {
+                return strings
+            }
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                for key in ["items", "output", "subtitles", "result", "results", "lines", "texts"] {
+                    guard let values = object[key] as? [String], values.count == expectedCount else { continue }
+                    return values
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func jsonCandidates(from text: String) -> [String] {
+        var ranges: [Range<String.Index>] = []
+        var searchStart = text.startIndex
+        while let marker = text.range(of: "OUTPUT_JSON:", range: searchStart..<text.endIndex) {
+            let tail = text[marker.upperBound...]
+            if let range = firstJSONRange(in: String(tail)) {
+                ranges.append(marker.upperBound..<text.index(marker.upperBound, offsetBy: range.upperBound.utf16Offset(in: String(tail))))
+            }
+            searchStart = marker.upperBound
+        }
+
+        var candidates = ranges.compactMap { range in
+            let tail = text[range]
+            if let jsonRange = firstJSONRange(in: String(tail)) {
+                return String(String(tail)[jsonRange])
+            }
+            return nil
+        }
+
+        candidates.append(contentsOf: fencedJSONBlocks(in: text))
+        candidates.append(contentsOf: allJSONArrayCandidates(in: text))
+        candidates.append(contentsOf: allJSONObjectCandidates(in: text))
+
+        var unique: [String] = []
+        for candidate in candidates.reversed() where !unique.contains(candidate) {
+            unique.append(candidate)
+        }
+        return unique
+    }
+
+    private static func fencedJSONBlocks(in text: String) -> [String] {
+        let pattern = #"```(?:json)?\s*([\s\S]*?)\s*```"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: nsRange).compactMap { match in
+            guard match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: text) else { return nil }
+            let block = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return firstJSONRange(in: block).map { String(block[$0]) }
+        }
+    }
+
+    private static func allJSONArrayCandidates(in text: String) -> [String] {
+        allJSONCandidates(in: text, opening: "[", closing: "]")
+    }
+
+    private static func allJSONObjectCandidates(in text: String) -> [String] {
+        allJSONCandidates(in: text, opening: "{", closing: "}")
+    }
+
+    private static func firstJSONRange(in text: String) -> Range<String.Index>? {
+        let arrayStart = text.firstIndex(of: "[")
+        let objectStart = text.firstIndex(of: "{")
+        let start: String.Index?
+        let closing: Character
+        switch (arrayStart, objectStart) {
+        case let (.some(array), .some(object)) where array < object:
+            start = array
+            closing = "]"
+        case (.some, .some), (.none, .some):
+            start = objectStart
+            closing = "}"
+        case (.some, .none):
+            start = arrayStart
+            closing = "]"
+        case (.none, .none):
+            return nil
+        }
+        guard let start else { return nil }
+        return balancedJSONRange(in: text, start: start, closing: closing)
+    }
+
+    private static func allJSONCandidates(in text: String, opening: Character, closing: Character) -> [String] {
+        text.indices.compactMap { index in
+            guard text[index] == opening,
+                  let range = balancedJSONRange(in: text, start: index, closing: closing) else { return nil }
+            return String(text[range])
+        }
+    }
+
+    private static func balancedJSONRange(in text: String, start: String.Index, closing: Character) -> Range<String.Index>? {
         var depth = 0
         var isEscaped = false
         var isInsideString = false
-        for index in trimmed[start...].indices {
-            let character = trimmed[index]
+        let opening: Character = closing == "]" ? "[" : "{"
+        for index in text[start...].indices {
+            let character = text[index]
             if isEscaped {
                 isEscaped = false
                 continue
@@ -180,10 +272,10 @@ actor TextImprovementService {
                 continue
             }
             guard !isInsideString else { continue }
-            if character == "[" { depth += 1 }
-            if character == "]" {
+            if character == opening { depth += 1 }
+            if character == closing {
                 depth -= 1
-                if depth == 0 { return String(trimmed[start...index]) }
+                if depth == 0 { return start..<text.index(after: index) }
             }
         }
         return nil
