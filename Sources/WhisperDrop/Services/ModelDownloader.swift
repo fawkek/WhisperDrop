@@ -222,6 +222,9 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
     private var progress: (@Sendable (Int64) -> Void)?
     private var expectedBytes: Int64 = 0
     private var receivedBytes: Int64 = 0
+    private var initialBytes: Int64 = 0
+    private var partialURL: URL?
+    private var incomingURL: URL?
     private var rangeHeader: String?
     private var finished = false
 
@@ -235,16 +238,23 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
         self.progress = progress
         receivedBytes = Self.fileSize(partialURL)
         if receivedBytes > expectedBytes {
-            try FileManager.default.removeItem(at: partialURL)
-            receivedBytes = 0
+            let handle = try FileHandle(forWritingTo: partialURL)
+            try handle.truncate(atOffset: UInt64(expectedBytes))
+            try handle.close()
+            receivedBytes = expectedBytes
         }
+        initialBytes = receivedBytes
+        self.partialURL = partialURL
         if !FileManager.default.fileExists(atPath: partialURL.path) {
             _ = FileManager.default.createFile(atPath: partialURL.path, contents: nil)
         }
-        fileHandle = try FileHandle(forWritingTo: partialURL)
-        try fileHandle?.seekToEnd()
+        let incomingURL = partialURL.appendingPathExtension("incoming")
+        try? FileManager.default.removeItem(at: incomingURL)
+        _ = FileManager.default.createFile(atPath: incomingURL.path, contents: nil)
+        self.incomingURL = incomingURL
+        fileHandle = try FileHandle(forWritingTo: incomingURL)
         progress(receivedBytes)
-        if receivedBytes == expectedBytes {
+        if initialBytes == expectedBytes {
             try fileHandle?.close()
             fileHandle = nil
             return
@@ -312,7 +322,8 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
             ))
             return
         }
-        if receivedBytes > 0, response.statusCode != 206 {
+        if initialBytes > 0,
+           (response.statusCode != 206 || !hasExpectedContentRange(response)) {
             completionHandler(.cancel)
             finish(throwing: ResumeRejectedError())
             return
@@ -322,6 +333,11 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
 
     func urlSession(_: URLSession, dataTask _: URLSessionDataTask, didReceive data: Data) {
         do {
+            guard receivedBytes + Int64(data.count) <= expectedBytes else {
+                task?.cancel()
+                finish(throwing: ResumeRejectedError())
+                return
+            }
             try fileHandle?.write(contentsOf: data)
             receivedBytes += Int64(data.count)
             progress?(min(receivedBytes, expectedBytes))
@@ -337,7 +353,12 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
         } else if receivedBytes != expectedBytes {
             finish(throwing: URLError(.cannotDecodeContentData))
         } else {
-            finish(throwing: nil)
+            do {
+                try commitIncomingFile()
+                finish(throwing: nil)
+            } catch {
+                finish(throwing: error)
+            }
         }
     }
 
@@ -346,6 +367,9 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
         finished = true
         try? fileHandle?.close()
         fileHandle = nil
+        if error != nil, let incomingURL {
+            try? FileManager.default.removeItem(at: incomingURL)
+        }
         session?.finishTasksAndInvalidate()
         let continuation = continuation
         self.continuation = nil
@@ -353,6 +377,30 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
             continuation?.resume(throwing: error)
         } else {
             continuation?.resume()
+        }
+    }
+
+    private func hasExpectedContentRange(_ response: HTTPURLResponse) -> Bool {
+        guard let contentRange = response.value(forHTTPHeaderField: "Content-Range")?.lowercased() else {
+            return false
+        }
+        return contentRange.hasPrefix("bytes \(initialBytes)-")
+    }
+
+    private func commitIncomingFile() throws {
+        guard let partialURL, let incomingURL else { throw URLError(.cannotCreateFile) }
+        try fileHandle?.close()
+        fileHandle = nil
+        let source = try FileHandle(forReadingFrom: incomingURL)
+        let destination = try FileHandle(forWritingTo: partialURL)
+        try destination.seekToEnd()
+        defer {
+            try? source.close()
+            try? destination.close()
+            try? FileManager.default.removeItem(at: incomingURL)
+        }
+        while let data = try source.read(upToCount: 1_048_576), !data.isEmpty {
+            try destination.write(contentsOf: data)
         }
     }
 

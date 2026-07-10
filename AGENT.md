@@ -64,9 +64,11 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - Recover an oversized weight file only when the SHA-256 of its official-length prefix matches the Hugging Face LFS hash: truncate the verified duplicate tail and remove the stale `.partial`. Never repair an oversized file based on size alone.
 - Cancelling a model download must always return to `needsModel`, even if cached or partially downloaded files exist. A stale download task must never advance the UI to `ready` after cancellation.
 - Transcription is on-device. Media must never be uploaded to a remote service.
-- Optional subtitle proofreading is local-only. It downloads the Apache-2.0 `mlx-community/Qwen3-0.6B-4bit` model (about 351 MB) to `~/Library/Application Support/WhisperDrop/Models/TextImprovementMLX`; it is never required for basic subtitle creation.
-- Proofreading runs through the bundled MLX Swift runtime, which uses Metal natively on Apple Silicon. Do not add a separate command-line runtime, Homebrew dependency, or CPU fallback path.
-- Download the complete required MLX model manifest with the app's resumable transfer service and consider the model installed only when every file matches its exact expected size. Once MLX installation succeeds, remove the obsolete `Qwen3-0.6B-Q8_0.gguf` file to reclaim its ~610 MiB.
+- Optional subtitle proofreading is local-only. It downloads the Apache-2.0 `basecompute/Qwen3-0.6B` Q4 BaseRT model (about 430 MB) to `~/Library/Application Support/WhisperDrop/Models/TextImprovementBaseRT`; it is never required for basic subtitle creation.
+- Proofreading uses the bundled BaseRT runtime (`Runtime/BaseRT` during development; `WhisperDrop.app/Contents/Resources/BaseRTRuntime` in the app). BaseRT is a direct native-Metal runtime for Apple Silicon. Keep `basert-complete` and its matching `baseRT.metallib` together.
+- The `.base` model includes its compatible tokenizer. Do not download, copy, or ask users to install a separate proofreading tokenizer. Treat it as installed only when its expected file size matches. After a successful BaseRT download, remove the obsolete MLX and GGUF proofreading-model folders.
+- BaseRT Q4 model download size is exactly `430,114,816` bytes. Downloads use `ResumableFileTransfer` with HTTP `Range`; received bytes are first written to a disposable `.incoming` file and appended to the persistent `.partial` file only after a valid response completes. A CDN response that ignores a range request must preserve existing progress. Never delete a partial download merely because a duplicate tail was received: trim it to the expected length and then validate/load it.
+- Cancelling BaseRT-model download must stay on the proofreading model screen and immediately show the stored `.partial` byte count. Never route cancellation to the finished subtitle screen or show zero bytes when a partial file exists.
 - Qwen proofreading must preserve cue count, order, start times, and end times. It may change only text spelling, punctuation, capitalization, and spacing. Do not translate, summarize, or rewrite meaning.
 
 `ModelLocator.swift` is the single source of truth for model paths and installation checks. Application Support is the permanent no-prompt model store; no folder-permission onboarding window is needed.
@@ -81,8 +83,9 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - `Services/TranscriptionService.swift`: WhisperKit setup, transcription, download, and progress callbacks.
 - `Services/ModelLocator.swift`: model/tokenizer locations.
 - `Services/TextImprovementModelLocator.swift`: Qwen proofreading model location, size, and download URL.
-- `Services/TextImprovementModelDownloader.swift`: resumable download of the local MLX Qwen file manifest.
-- `Services/TextImprovementService.swift`: local subtitle proofreading through MLX Swift / Metal.
+- `Services/TextImprovementModelDownloader.swift`: resumable download of the BaseRT Qwen model.
+- `Services/TextImprovementService.swift`: local subtitle proofreading through bundled BaseRT / native Metal.
+- `Runtime/BaseRT`: BaseRT release runtime assets bundled by `script/build_and_run.sh`; both `basert-complete` and the matching `baseRT.metallib` are required in the final app bundle.
 - `Support/SRTFormatter.swift`: deterministic UTF-8 SRT rendering and timestamp formatting.
 - `Support/SubtitleExporter.swift`: SRT, WebVTT, ASS, and TXT rendering plus byte encoding/BOM handling.
 - `Support/WhisperTextSanitizer.swift`: removes Whisper control and timestamp tokens from decoded text.
@@ -225,15 +228,16 @@ Treat the following as required release work, not optional polish:
 - Verify downloaded files with expected size and cryptographic checksum before loading.
 - Support resume, atomic installation, migration, corruption recovery, and deletion from settings.
 - Document model and WhisperKit licenses in the app and distribution package.
-- Document Qwen3 and MLX Swift licenses in the app and distribution package before enabling proofreading in a public build.
-- Add checksum verification for the Qwen MLX files; current implementation checks exact file sizes only.
+- Document Qwen3 and BaseRT licenses in the app and distribution package before enabling proofreading in a public build.
+- Add checksum verification for the Qwen BaseRT model; current implementation checks exact file size only.
 - Keep the `OUTPUT_JSON:` prompt contract. The parser may accept a raw JSON array, fenced `json` block, or common object wrappers like `{"output":[...]}` only when the decoded string count exactly matches the input cue count. Never accept echoed input JSON from the prompt as a successful model response.
 - After proofreading, compare original and improved cue text and show the changed cue count on the finished screen, e.g. `1243 исправления` / `1243 corrections`. This is user-facing result metadata, not diagnostic logging.
 - Diagnostic logs must not be shown on the main surface. Use the top `Диагностика` / `Diagnostics` menu to open `~/Library/Application Support/WhisperDrop/Logs/WhisperDrop.log` or reveal its folder. Logs may include counts, chunk numbers, runtime mode, fallback paths, and errors, but must not include raw subtitle text.
 
 ### Subtitle proofreading stabilization
 
-- Keep MLX Swift and the MLX model manifest pinned to known-good versions and smoke-test a packaged application on Apple Silicon before release.
+- Pin the BaseRT runtime release and smoke-test the packaged Metal runtime on Apple Silicon before release.
+- Before release, perform one clean BaseRT-model download from zero, one cancel/resume test, one interrupted-network test, and one long SRT proofreading test in the packaged app.
 - Add regression tests for the prompt contract: JSON array only, same cue count, same order, no translation, no meaning rewrite.
 - Add chunking tests for long subtitle files, escaped quotes, emojis, multiline cues, Russian/English mixed text, and malformed model output.
 - Add a visual diff model so the proofreading screen can highlight only actually corrected words, not just the currently processed word.

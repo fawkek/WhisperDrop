@@ -1,6 +1,4 @@
 import Foundation
-import MLXLLM
-import MLXLMCommon
 import OSLog
 
 actor TextImprovementService {
@@ -8,8 +6,6 @@ actor TextImprovementService {
         subsystem: Bundle.main.bundleIdentifier ?? "WhisperDrop",
         category: "Proofreading"
     )
-
-    private var modelContainer: ModelContainer?
 
     struct RuntimeUnavailableError: LocalizedError {
         var errorDescription: String? {
@@ -43,11 +39,11 @@ actor TextImprovementService {
             throw CocoaError(.fileNoSuchFile)
         }
 
-        let model = try await loadedModel()
+        guard TextImprovementModelLocator.isInstalled else { throw RuntimeUnavailableError() }
         var improved: [SubtitleCue] = []
         let chunks = cues.chunked(into: 12)
-        Self.logger.info("MLX proofreading run started: cues=\(cues.count, privacy: .public), chunks=\(chunks.count, privacy: .public)")
-        AppFileLog.write("MLX Metal proofreading run started: cues=\(cues.count), chunks=\(chunks.count)")
+        Self.logger.info("BaseRT proofreading run started: cues=\(cues.count, privacy: .public), chunks=\(chunks.count, privacy: .public)")
+        AppFileLog.write("BaseRT native Metal proofreading run started: cues=\(cues.count), chunks=\(chunks.count)")
         for chunkIndex in chunks.indices {
             try Task.checkCancellation()
             let chunk = chunks[chunkIndex]
@@ -64,14 +60,14 @@ actor TextImprovementService {
 
             let correctedTexts: [String]
             do {
-                Self.logger.info("MLX Metal chunk \(chunkIndex + 1, privacy: .public)/\(chunks.count, privacy: .public) started")
-                AppFileLog.write("MLX Metal chunk \(chunkIndex + 1)/\(chunks.count) started")
-                correctedTexts = try await runModel(model: model, cues: chunk)
-                Self.logger.info("MLX Metal chunk \(chunkIndex + 1, privacy: .public) succeeded")
-                AppFileLog.write("MLX Metal chunk \(chunkIndex + 1) succeeded")
+                Self.logger.info("BaseRT Metal chunk \(chunkIndex + 1, privacy: .public)/\(chunks.count, privacy: .public) started")
+                AppFileLog.write("BaseRT Metal chunk \(chunkIndex + 1)/\(chunks.count) started")
+                correctedTexts = try runModel(cues: chunk)
+                Self.logger.info("BaseRT Metal chunk \(chunkIndex + 1, privacy: .public) succeeded")
+                AppFileLog.write("BaseRT Metal chunk \(chunkIndex + 1) succeeded")
             } catch {
-                Self.logger.warning("MLX Metal chunk \(chunkIndex + 1, privacy: .public) failed, keeping original text: \(error.localizedDescription, privacy: .public)")
-                AppFileLog.write("MLX Metal chunk \(chunkIndex + 1) failed, keeping original text: \(error.localizedDescription)")
+                Self.logger.warning("BaseRT Metal chunk \(chunkIndex + 1, privacy: .public) failed, keeping original text: \(error.localizedDescription, privacy: .public)")
+                AppFileLog.write("BaseRT Metal chunk \(chunkIndex + 1) failed, keeping original text: \(error.localizedDescription)")
                 correctedTexts = chunk.map(\.text)
             }
             guard correctedTexts.count == chunk.count else { throw InvalidModelOutputError() }
@@ -81,23 +77,12 @@ actor TextImprovementService {
             progress(Double(chunkIndex + 1) / Double(chunks.count), correctedTexts.last ?? "")
         }
 
-        Self.logger.info("MLX proofreading run finished")
-        AppFileLog.write("MLX Metal proofreading run finished")
+        Self.logger.info("BaseRT proofreading run finished")
+        AppFileLog.write("BaseRT native Metal proofreading run finished")
         return improved
     }
 
-    private func loadedModel() async throws -> ModelContainer {
-        if let modelContainer { return modelContainer }
-        guard TextImprovementModelLocator.isInstalled else { throw RuntimeUnavailableError() }
-        let configuration = ModelConfiguration(directory: TextImprovementModelLocator.modelFolder)
-        AppFileLog.write("Loading local MLX Qwen model for Metal inference")
-        let container = try await LLMModelFactory.shared.loadContainer(configuration: configuration)
-        modelContainer = container
-        AppFileLog.write("Local MLX Qwen model loaded")
-        return container
-    }
-
-    private func runModel(model: ModelContainer, cues: [SubtitleCue]) async throws -> [String] {
+    private func runModel(cues: [SubtitleCue]) throws -> [String] {
         let input = cues.map(\.text)
         let inputData = try JSONEncoder().encode(input)
         let inputJSON = String(decoding: inputData, as: UTF8.self)
@@ -106,40 +91,77 @@ actor TextImprovementService {
         Start your answer with OUTPUT_JSON: followed by a valid JSON array of strings.
         The array length and order must match the input.
         Fix only spelling, punctuation, capitalization, and spacing.
-        Do not translate. Do not rewrite meaning. Do not add explanations.
+        Do not translate. Do not rewrite meaning. Do not add explanations or reasoning. Do not output <think> tags.
         Example answer: OUTPUT_JSON:["Corrected first line.","Corrected second line."]
 
         Input JSON:
         \(inputJSON)
         """
 
-        let preparedInput = try await model.prepare(input: UserInput(prompt: prompt))
-        let stream = try await model.generate(
-            input: preparedInput,
-            parameters: GenerateParameters(maxTokens: 512, temperature: 0)
-        )
-        var outputText = ""
-        for await generation in stream {
-            if case let .chunk(text) = generation { outputText += text }
+        let runtime = try baseRTRuntimeURL()
+        let process = Process()
+        process.executableURL = runtime
+        process.currentDirectoryURL = runtime.deletingLastPathComponent()
+        process.arguments = [
+            TextImprovementModelLocator.modelFile.path,
+            "--prompt", prompt,
+            "--chat",
+            "--max-tokens", "512",
+            "--temp", "0"
+        ]
+        let output = Pipe()
+        let errors = Pipe()
+        process.standardOutput = output
+        process.standardError = errors
+        try process.run()
+        process.waitUntilExit()
+        let outputText = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let errorText = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "WhisperDrop.BaseRT",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: errorText.isEmpty ? "BaseRT exited with code \(process.terminationStatus)." : errorText]
+            )
         }
 
-        guard let decoded = Self.decodeModelOutput(outputText, expectedCount: cues.count) else {
+        guard let decoded = Self.decodeModelOutput(
+            outputText,
+            expectedCount: cues.count,
+            excluding: input
+        ) else {
             throw InvalidModelOutputError()
         }
         return decoded
     }
 
-    static func decodeModelOutput(_ text: String, expectedCount: Int) -> [String]? {
+    private func baseRTRuntimeURL() throws -> URL {
+        guard let executable = Bundle.main.resourceURL?
+            .appending(path: "BaseRTRuntime", directoryHint: .isDirectory)
+            .appending(path: "basert-complete"),
+            FileManager.default.isExecutableFile(atPath: executable.path) else {
+            throw RuntimeUnavailableError()
+        }
+        return executable
+    }
+
+    static func decodeModelOutput(
+        _ text: String,
+        expectedCount: Int,
+        excluding excluded: [String]? = nil
+    ) -> [String]? {
         let candidates = jsonCandidates(from: text)
         for candidate in candidates {
             guard let data = candidate.data(using: .utf8) else { continue }
             if let strings = try? JSONDecoder().decode([String].self, from: data),
-               strings.count == expectedCount {
+               strings.count == expectedCount,
+               strings != excluded {
                 return strings
             }
             if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 for key in ["items", "output", "subtitles", "result", "results", "lines", "texts"] {
-                    guard let values = object[key] as? [String], values.count == expectedCount else { continue }
+                    guard let values = object[key] as? [String], values.count == expectedCount,
+                          values != excluded else { continue }
                     return values
                 }
             }

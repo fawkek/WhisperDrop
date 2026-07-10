@@ -191,7 +191,10 @@ final class AppStore {
         workTask = nil
         if wasDownloading {
             phase = .needsModel
-        } else if wasNeedsImprovementModel || wasImprovementDownload || wasImproving {
+        } else if wasNeedsImprovementModel || wasImprovementDownload {
+            shouldImproveAfterModelDownload = false
+            phase = .needsImprovementModel
+        } else if wasImproving {
             shouldImproveAfterModelDownload = false
             phase = cues.isEmpty ? .ready : .finished
         } else {
