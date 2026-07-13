@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <b>Локальные субтитры для macOS.</b><br>
-  Превращает аудио и видео в аккуратные файлы субтитров — без загрузки медиа в облако.
+  <b>Бесплатные локальные субтитры для macOS.</b><br>
+  Простое приложение для создания доступных субтитров, в том числе для слабослышащих — без загрузки медиа в облако.
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 
 ## Русский
 
-WhisperDrop — нативное приложение для macOS, которое распознаёт речь в аудио- и видеофайлах и создаёт субтитры на устройстве. Оно построено вокруг OpenAI Whisper Large v3 и особенно задумано как простой инструмент для подготовки субтитров для слабослышащих.
+WhisperDrop — бесплатное нативное приложение для macOS, которое распознаёт речь в аудио- и видеофайлах и создаёт субтитры на устройстве. Оно построено вокруг OpenAI Whisper Large v3 и особенно задумано как простой инструмент для подготовки доступных субтитров для слабослышащих.
 
 ### Что умеет
 
@@ -89,7 +89,7 @@ WhisperDrop обрабатывает аудио, видео и текст суб
 
 ## English
 
-WhisperDrop is a native macOS app that turns audio and video into subtitle files on your own device. It is built around OpenAI Whisper Large v3 and designed to make accessible subtitle creation simple and private.
+WhisperDrop is a free native macOS app that turns audio and video into subtitle files on your own device. It is built around OpenAI Whisper Large v3 and designed to make accessible subtitle creation simple and private, including for people who are deaf or hard of hearing.
 
 ### Features
 
