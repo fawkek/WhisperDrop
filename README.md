@@ -172,3 +172,5 @@ The resulting ZIP is suitable for local testing when ad-hoc signed. Public direc
 ---
 
 Made by [@fawkek_obj](https://x.com/fawkek_obj).
+
+Released under the [MIT License](LICENSE).
