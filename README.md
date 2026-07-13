@@ -41,6 +41,14 @@ WhisperDrop — нативное приложение для macOS, которо
 
 Для вычитки субтитров приложение при необходимости отдельно скачает небольшую локальную модель Qwen3 (около 430 МБ). Она необязательна: базовое создание субтитров работает без неё.
 
+### Интерфейс
+
+<p align="center">
+  <img src="Docs/Screenshots/transcribing.png" width="460" alt="WhisperDrop распознаёт видео и показывает круговой индикатор прогресса">
+</p>
+
+<p align="center"><i>Экран локального распознавания субтитров.</i></p>
+
 ### Установка и запуск
 
 Пока приложение готовится к первой публичной версии, его можно собрать из исходного кода:
@@ -102,6 +110,14 @@ WhisperDrop is a native macOS app that turns audio and video into subtitle files
 5. Click **Save Subtitles**.
 
 If you choose subtitle proofreading, the app may download a separate local Qwen3 model (about 430 MB). It is optional and is not needed for transcription.
+
+### Interface
+
+<p align="center">
+  <img src="Docs/Screenshots/transcribing.png" width="460" alt="WhisperDrop transcribing a video with a circular progress indicator">
+</p>
+
+<p align="center"><i>Local subtitle transcription in progress.</i></p>
 
 ### Install and run
 
