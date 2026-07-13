@@ -28,11 +28,11 @@ struct AboutView: View {
                     Label("@fawkek_obj", systemImage: "person.crop.circle")
                 }
                 .buttonStyle(.bordered)
-                Button(action: {}) {
+                Link(destination: URL(string: "https://github.com/fawkek/WhisperDrop")!) {
                     Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                 }
-                .buttonStyle(.bordered).disabled(true)
-                .help(AppText.pick("Ссылка будет добавлена после публикации", "The link will be added after publishing"))
+                .buttonStyle(.bordered)
+                .help("github.com/fawkek/WhisperDrop")
             }
             Text("© 2026 Igor Sevcenko")
                 .font(.system(size: 10)).foregroundStyle(.tertiary)
