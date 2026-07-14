@@ -25,7 +25,7 @@ struct ContentView: View {
             }
         }
         .animation(.easeOut(duration: 0.25), value: store.phase)
-        .frame(minWidth: 500, idealWidth: 520, minHeight: 370, idealHeight: 400)
+        .frame(width: 600, height: 600)
         .background(GlassWindowConfigurator().frame(width: 0, height: 0))
         .onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: store.accept)
     }
@@ -74,6 +74,9 @@ private struct ModelSetupView: View {
                         .contentTransition(.numericText())
                     }
                     Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 } else {
                     Label(byteCount(ModelLocator.expectedDownloadBytes), systemImage: "internaldrive")
                         .font(.system(size: 12))
@@ -127,7 +130,7 @@ private struct FileDropView: View {
                 colors: [Color.cyan.opacity(colorScheme == .dark ? 0.10 : 0.07), .clear],
                 center: .center,
                 startRadius: 20,
-                endRadius: 280
+                endRadius: 205
             )
             .allowsHitTesting(false)
 
@@ -171,9 +174,15 @@ private struct FileDropView: View {
                 .background(cardBackground, in: RoundedRectangle(cornerRadius: 42, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 42, style: .continuous)
-                        .strokeBorder(cardBorder, style: StrokeStyle(lineWidth: isTargeted ? 1.8 : 1, dash: isTargeted ? [7, 5] : []))
+                        .strokeBorder(
+                            cardBorder,
+                            style: StrokeStyle(
+                                lineWidth: isTargeted ? 1.8 : 1.15,
+                                dash: isTargeted ? [7, 5] : []
+                            )
+                        )
                 }
-                .shadow(color: Color.cyan.opacity(colorScheme == .dark ? 0.12 : 0.08), radius: 28, y: 10)
+                .shadow(color: Color.cyan.opacity(colorScheme == .dark ? 0.10 : 0.07), radius: 18, y: 7)
                 .scaleEffect(isTargeted ? 1.025 : 1)
                 .contentShape(RoundedRectangle(cornerRadius: 42, style: .continuous))
             }
@@ -196,7 +205,11 @@ private struct FileDropView: View {
 
     private var cardBorder: LinearGradient {
         LinearGradient(
-            colors: [Color.cyan.opacity(isTargeted ? 0.95 : 0.55), Color.blue.opacity(isTargeted ? 0.90 : 0.38)],
+            colors: [
+                Color.white.opacity(isTargeted ? 0.72 : 0.46),
+                Color.cyan.opacity(isTargeted ? 0.98 : 0.82),
+                Color.blue.opacity(isTargeted ? 0.92 : 0.66),
+            ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -346,6 +359,9 @@ private struct ImprovementModelSetupView: View {
                         .contentTransition(.numericText())
                     }
                     Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 } else {
                     Label(byteCount(TextImprovementModelLocator.expectedDownloadBytes), systemImage: "internaldrive")
                         .font(.system(size: 12))
@@ -430,6 +446,9 @@ private struct ImprovingSubtitlesView: View {
                     .clipped()
 
                 Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
             }
         }
         .onChange(of: store.improvementWord) { _, word in

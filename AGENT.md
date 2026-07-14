@@ -113,7 +113,7 @@ Keep business logic out of SwiftUI views. SwiftUI owns presentation; `AppStore` 
 
 Only one phase surface should be visible at a time. Dropping another file while work is active is rejected. Escape cancels active work. Command-O opens media. Command-S saves after completion.
 
-Cancelling the Qwen model download or proofreading returns to the finished subtitle screen, not to the initial file drop screen. Downloading the Qwen model after transcription also returns to the finished screen; the user must explicitly press proofreading again.
+Cancelling a Qwen model download stays on the Qwen setup screen and preserves the visible partial byte count. Cancelling active proofreading returns to the finished subtitle screen. Downloading Qwen after transcription returns to the finished screen and requires a second explicit press on proofreading; downloading it after dropping a subtitle file continues directly into proofreading.
 
 ## Subtitle correctness
 
@@ -144,7 +144,7 @@ Transcription progress must use `WhisperKit.progress.fractionCompleted`. `Transc
 - Light and dark appearance follow the system automatically.
 - Visible app text uses Russian when the primary preferred system language starts with `ru`; otherwise it uses English. Speech recognition language remains automatic and must not be exposed as an interface selector unless explicitly requested later.
 - File drop state, transcription state, and finished state must remain separate.
-- The ready-state drop target is a compact centered rounded card inspired by Gifski, not a dashed frame around the whole content area. Keep its adaptive blue/cyan surface, soft glow, pill-shaped primary button, visible `⌘O` hint, and active drag feedback. It must remain readable in both system appearances and accept video, audio, SRT, and WebVTT.
+- The main window is a fixed 600×600 square and must not be resizable, so the composition and glow remain stable. The ready-state drop target is a compact centered rounded card inspired by Gifski, not a dashed frame around the whole content area. Keep its adaptive blue/cyan surface, localized soft glow, bright thin blue/cyan outline, pill-shaped primary button, visible `⌘O` hint, and dashed active drag feedback. It must remain readable in both system appearances and accept video, audio, SRT, and WebVTT.
 - Primary actions keep visible shortcut hints where appropriate.
 - State transitions use short 150–250 ms macOS-style fades/scales.
 - The transcription ring and waveform use one oversized, smooth blue-to-light-blue linear gradient without repeating color bands. Render active animation at 60 FPS and respect Reduce Motion by freezing gradient travel and waveform movement.
@@ -232,6 +232,7 @@ Treat the following as required release work, not optional polish:
 - Document Qwen3 and BaseRT licenses in the app and distribution package before enabling proofreading in a public build.
 - Add checksum verification for the Qwen BaseRT model; current implementation checks exact file size only.
 - Keep the `OUTPUT_JSON:` prompt contract. The parser may accept a raw JSON array, fenced `json` block, or common object wrappers like `{"output":[...]}` only when the decoded string count exactly matches the input cue count. Never accept echoed input JSON from the prompt as a successful model response.
+- Never convert UTF-16 offsets into Swift `String.Index` with `offsetBy:`. Keep parser ranges in the same string instance or use `Range(_:in:)`; regression coverage must include Cyrillic, emoji, combined Unicode scalars, and trailing model chatter.
 - After proofreading, compare original and improved cue text and show the changed cue count on the finished screen, e.g. `1243 исправления` / `1243 corrections`. This is user-facing result metadata, not diagnostic logging.
 - Diagnostic logs must not be shown on the main surface. Use the top `Диагностика` / `Diagnostics` menu to open `~/Library/Application Support/WhisperDrop/Logs/WhisperDrop.log` or reveal its folder. Logs may include counts, chunk numbers, runtime mode, fallback paths, and errors, but must not include raw subtitle text.
 

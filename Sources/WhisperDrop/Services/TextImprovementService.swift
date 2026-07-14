@@ -170,22 +170,14 @@ actor TextImprovementService {
     }
 
     private static func jsonCandidates(from text: String) -> [String] {
-        var ranges: [Range<String.Index>] = []
+        var candidates: [String] = []
         var searchStart = text.startIndex
         while let marker = text.range(of: "OUTPUT_JSON:", range: searchStart..<text.endIndex) {
-            let tail = text[marker.upperBound...]
-            if let range = firstJSONRange(in: String(tail)) {
-                ranges.append(marker.upperBound..<text.index(marker.upperBound, offsetBy: range.upperBound.utf16Offset(in: String(tail))))
+            let tail = String(text[marker.upperBound...])
+            if let range = firstJSONRange(in: tail) {
+                candidates.append(String(tail[range]))
             }
             searchStart = marker.upperBound
-        }
-
-        var candidates = ranges.compactMap { range in
-            let tail = text[range]
-            if let jsonRange = firstJSONRange(in: String(tail)) {
-                return String(String(tail)[jsonRange])
-            }
-            return nil
         }
 
         candidates.append(contentsOf: fencedJSONBlocks(in: text))

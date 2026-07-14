@@ -38,6 +38,17 @@ final class TextImprovementServiceTests: XCTestCase {
         )
     }
 
+    func testDecodesMarkedJSONWithExtendedUnicode() {
+        let output = """
+        💬 Модель ответила: OUTPUT_JSON:["Привет 👋🏽","Кафе — уже открыто."] trailing text
+        """
+
+        XCTAssertEqual(
+            TextImprovementService.decodeModelOutput(output, expectedCount: 2),
+            ["Привет 👋🏽", "Кафе — уже открыто."]
+        )
+    }
+
     func testRejectsWrongCount() {
         XCTAssertNil(TextImprovementService.decodeModelOutput("OUTPUT_JSON:[\"Only one\"]", expectedCount: 2))
     }

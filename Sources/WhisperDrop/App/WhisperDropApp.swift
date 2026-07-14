@@ -17,7 +17,9 @@ struct WhisperDropApp: App {
         WindowGroup("WhisperDrop", id: "main") {
             ContentView(store: store)
         }
+        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
+        .defaultSize(width: 600, height: 600)
         .commands {
             AboutCommands()
             CommandGroup(replacing: .newItem) {
