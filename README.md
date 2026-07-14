@@ -1,7 +1,7 @@
 # WhisperDrop
 
 <p align="center">
-  <img src="Assets/AppIcon.png" width="160" alt="Иконка WhisperDrop">
+  <img src="Docs/WhisperDrop-icon.png" width="160" alt="Иконка WhisperDrop">
 </p>
 
 <p align="center">
