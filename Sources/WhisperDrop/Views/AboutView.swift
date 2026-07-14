@@ -34,7 +34,7 @@ struct AboutView: View {
                 .buttonStyle(.bordered)
                 .help("github.com/fawkek/WhisperDrop")
             }
-            Text("© 2026 Igor Sevcenko")
+            Text("© 2026 Igor Shevchenko")
                 .font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .padding(24).frame(width: 400, height: 355)
