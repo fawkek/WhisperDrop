@@ -308,6 +308,7 @@ private struct TranscriptionFinishedView: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut("s", modifiers: .command)
             }
+            .controlSize(.large)
         }
     }
 
