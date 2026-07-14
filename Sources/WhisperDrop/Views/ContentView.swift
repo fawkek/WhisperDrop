@@ -119,54 +119,105 @@ private struct ModelSetupView: View {
 private struct FileDropView: View {
     let store: AppStore
     let isTargeted: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Button(action: store.chooseFile) {
-            VStack(spacing: 24) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(isTargeted ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.08))
-                        .frame(width: 72, height: 72)
-                    Image(systemName: isTargeted ? "arrow.down" : "film.stack")
-                        .font(.system(size: 30, weight: .light))
-                        .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary)
-                        .contentTransition(.symbolEffect(.replace))
-                }
+        ZStack {
+            RadialGradient(
+                colors: [Color.cyan.opacity(colorScheme == .dark ? 0.10 : 0.07), .clear],
+                center: .center,
+                startRadius: 20,
+                endRadius: 280
+            )
+            .allowsHitTesting(false)
 
-                VStack(spacing: 6) {
+            Button(action: store.chooseFile) {
+                VStack(spacing: 0) {
+                    Image(systemName: isTargeted ? "arrow.down" : "film.stack")
+                        .font(.system(size: 27, weight: .light))
+                        .foregroundStyle(isTargeted ? Color.white : Color.accentColor)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 52, height: 52)
+                        .background(iconBackground, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+
                     Text(isTargeted
                          ? AppText.pick("Отпустите файл", "Drop the file")
-                         : AppText.pick("Перетащите видео, аудио или субтитры", "Drop video, audio, or subtitles"))
-                        .font(.system(size: 17, weight: .semibold))
-                    Text(AppText.pick("Видео распознается, субтитры сразу отправятся на исправление", "Video is transcribed; subtitles go straight to proofreading"))
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
+                         : AppText.pick("Перетащите файл", "Drop a file"))
+                        .font(.system(size: 18, weight: .semibold))
+                        .padding(.top, 18)
 
-                HStack(spacing: 8) {
-                    Text(AppText.pick("Выбрать файл", "Choose file"))
-                        .font(.system(size: 13, weight: .medium))
-                    ShortcutHint(keys: "⌘O")
+                    Text(AppText.pick("Видео, аудио или субтитры", "Video, audio, or subtitles"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 5)
+
+                    Text(AppText.pick("или", "or"))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .padding(.vertical, 12)
+
+                    HStack(spacing: 9) {
+                        Text(AppText.pick("Выбрать файл", "Choose file"))
+                            .font(.system(size: 13, weight: .semibold))
+                        ShortcutHint(keys: "⌘O", inverted: true)
+                    }
+                    .padding(.horizontal, 18)
+                    .frame(height: 38)
+                    .foregroundStyle(.white)
+                    .background(buttonBackground, in: Capsule())
+                    .shadow(color: Color.blue.opacity(colorScheme == .dark ? 0.28 : 0.18), radius: 12, y: 5)
                 }
-                .padding(.horizontal, 12)
-                .frame(height: 28)
-                .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+                .frame(width: 300, height: 252)
+                .background(cardBackground, in: RoundedRectangle(cornerRadius: 42, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 42, style: .continuous)
+                        .strokeBorder(cardBorder, style: StrokeStyle(lineWidth: isTargeted ? 1.8 : 1, dash: isTargeted ? [7, 5] : []))
+                }
+                .shadow(color: Color.cyan.opacity(colorScheme == .dark ? 0.12 : 0.08), radius: 28, y: 10)
+                .scaleEffect(isTargeted ? 1.025 : 1)
+                .contentShape(RoundedRectangle(cornerRadius: 42, style: .continuous))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityLabel(AppText.pick("Выбрать видео, аудио или субтитры", "Choose video, audio, or subtitles"))
         }
-        .buttonStyle(.plain)
-        .padding(20)
-        .background(isTargeted ? Color.accentColor.opacity(0.035) : .clear)
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(
-                    isTargeted ? Color.accentColor : Color.secondary.opacity(0.24),
-                    style: StrokeStyle(lineWidth: isTargeted ? 1.5 : 1, dash: [7, 5])
-                )
-                .padding(20)
-        }
-        .animation(.easeOut(duration: 0.15), value: isTargeted)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeOut(duration: 0.18), value: isTargeted)
+    }
+
+    private var cardBackground: LinearGradient {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [Color.blue.opacity(0.20), Color.cyan.opacity(0.10), Color.blue.opacity(0.08)]
+                : [Color.white.opacity(0.78), Color.cyan.opacity(0.16), Color.blue.opacity(0.10)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var cardBorder: LinearGradient {
+        LinearGradient(
+            colors: [Color.cyan.opacity(isTargeted ? 0.95 : 0.55), Color.blue.opacity(isTargeted ? 0.90 : 0.38)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var iconBackground: LinearGradient {
+        LinearGradient(
+            colors: isTargeted
+                ? [Color.cyan, Color.blue]
+                : [Color.cyan.opacity(colorScheme == .dark ? 0.18 : 0.14), Color.blue.opacity(colorScheme == .dark ? 0.22 : 0.12)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var buttonBackground: LinearGradient {
+        LinearGradient(
+            colors: [Color(red: 0.18, green: 0.72, blue: 1.0), Color(red: 0.05, green: 0.42, blue: 0.96)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
 

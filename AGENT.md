@@ -144,6 +144,7 @@ Transcription progress must use `WhisperKit.progress.fractionCompleted`. `Transc
 - Light and dark appearance follow the system automatically.
 - Visible app text uses Russian when the primary preferred system language starts with `ru`; otherwise it uses English. Speech recognition language remains automatic and must not be exposed as an interface selector unless explicitly requested later.
 - File drop state, transcription state, and finished state must remain separate.
+- The ready-state drop target is a compact centered rounded card inspired by Gifski, not a dashed frame around the whole content area. Keep its adaptive blue/cyan surface, soft glow, pill-shaped primary button, visible `⌘O` hint, and active drag feedback. It must remain readable in both system appearances and accept video, audio, SRT, and WebVTT.
 - Primary actions keep visible shortcut hints where appropriate.
 - State transitions use short 150–250 ms macOS-style fades/scales.
 - The transcription ring and waveform use one oversized, smooth blue-to-light-blue linear gradient without repeating color bands. Render active animation at 60 FPS and respect Reduce Motion by freezing gradient travel and waveform movement.
