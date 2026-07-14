@@ -50,6 +50,10 @@ final class AppStore {
     private var workTask: Task<Void, Never>?
     private var operationID = UUID()
 
+    init() {
+        restoreDraftIfAvailable()
+    }
+
     var isWorking: Bool {
         [.downloading, .preparing, .transcribing, .downloadingImprovementModel, .improvingSubtitles].contains(phase)
     }
@@ -93,6 +97,7 @@ final class AppStore {
         guard ModelLocator.isInstalled else { phase = .needsModel; return }
         workTask?.cancel()
         shouldImproveAfterModelDownload = false
+        SubtitleDraftStore.clear()
         selectedFile = url
         cues = []
         proofreadingChangedCueCount = nil
@@ -112,6 +117,7 @@ final class AppStore {
                     }
                 )
                 cues = result
+                persistDraft()
                 progress = 1
                 phase = .finished
                 if audio != url { try? FileManager.default.removeItem(at: audio) }
@@ -132,6 +138,7 @@ final class AppStore {
         do {
             cues = try SubtitleImporter.load(url)
             exportFormat = SubtitleImporter.format(for: url)
+            persistDraft()
             if TextImprovementModelLocator.isInstalled {
                 shouldImproveAfterModelDownload = false
                 improveSubtitles()
@@ -208,6 +215,7 @@ final class AppStore {
 
     func improveSubtitles() {
         guard !cues.isEmpty else { return }
+        persistDraft()
         shouldImproveAfterModelDownload = false
         guard TextImprovementModelLocator.isInstalled else {
             improvementDownloadError = nil
@@ -243,6 +251,7 @@ final class AppStore {
                 let changedCount = Self.changedCueCount(original: originalCues, improved: improved)
                 cues = improved
                 proofreadingChangedCueCount = changedCount
+                persistDraft()
                 progress = 1
                 improvementWord = ""
                 phase = .finished
@@ -317,6 +326,7 @@ final class AppStore {
     }
 
     func reset() {
+        SubtitleDraftStore.clear()
         selectedFile = nil
         cues = []
         progress = 0
@@ -342,6 +352,36 @@ final class AppStore {
             let improvedText = pair.1.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return total + (originalText == improvedText ? 0 : 1)
         }
+    }
+
+    private func persistDraft() {
+        guard !cues.isEmpty else { return }
+        let draft = SubtitleDraft(
+            sourcePath: selectedFile?.path,
+            cues: cues,
+            format: exportFormat,
+            encoding: exportEncoding,
+            changedCueCount: proofreadingChangedCueCount,
+            updatedAt: Date()
+        )
+        do {
+            try SubtitleDraftStore.save(draft)
+        } catch {
+            Self.logger.error("Could not save subtitle recovery draft: \(error.localizedDescription, privacy: .public)")
+            AppFileLog.write("Could not save subtitle recovery draft: \(error.localizedDescription)")
+        }
+    }
+
+    private func restoreDraftIfAvailable() {
+        guard let draft = SubtitleDraftStore.load() else { return }
+        selectedFile = draft.sourcePath.map { URL(fileURLWithPath: $0) }
+        cues = draft.cues
+        exportFormat = draft.format
+        exportEncoding = draft.format.requiresUTF8 ? .utf8 : draft.encoding
+        proofreadingChangedCueCount = draft.changedCueCount
+        progress = 1
+        phase = .finished
+        AppFileLog.write("Recovered subtitle draft: cues=\(draft.cues.count)")
     }
 
     private func ensureLogFileExists() {

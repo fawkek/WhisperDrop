@@ -1,6 +1,6 @@
 import Foundation
 
-enum SubtitleFormat: String, CaseIterable, Identifiable {
+enum SubtitleFormat: String, CaseIterable, Codable, Identifiable {
     case srt
     case vtt
     case ass
@@ -19,7 +19,7 @@ enum SubtitleFormat: String, CaseIterable, Identifiable {
     var requiresUTF8: Bool { self == .vtt }
 }
 
-enum SubtitleEncoding: String, CaseIterable, Identifiable {
+enum SubtitleEncoding: String, CaseIterable, Codable, Identifiable {
     case utf8
     case utf8BOM
     case utf16LE
