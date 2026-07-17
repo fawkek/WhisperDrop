@@ -100,6 +100,12 @@ WhisperDrop обрабатывает аудио, видео и текст суб
 - Свободное место: около 1,7 ГБ для модели распознавания; ещё около 430 МБ — только если нужна функция вычитки
 - Apple Silicon рекомендуется; локальная вычитка использует Metal для ускорения
 
+### OpenAI Build Week: как использовались Codex и GPT-5.6
+
+WhisperDrop развивался итеративно вместе с Codex и GPT-5.6. Они помогали находить причины сбоев при скачивании моделей и обработке субтитров, проверять Swift-код и чистую установку, улучшать нативный интерфейс macOS, стабилизировать парсинг и экспорт таймкодов, готовить локализацию, документацию и тестовые сборки. Все решения проверялись на реальном приложении и локальных моделях; итоговый код и релизы находятся в этом репозитории
+
+[Посмотреть короткое демо для OpenAI Build Week](https://youtu.be/ttnF9ukFG0M)
+
 ### Статус проекта
 
 Доступна первая публичная тестовая сборка. Подписанные и notarized сборки появятся после подключения Apple Developer ID
@@ -171,6 +177,12 @@ You can remove them to free disk space; the app will offer to download them agai
 - macOS 14 Sonoma or later
 - Around 1.7 GB of free space for the transcription model; another 430 MB only when subtitle proofreading is used
 - Apple Silicon is recommended; local proofreading uses Metal acceleration
+
+### OpenAI Build Week: how Codex and GPT-5.6 were used
+
+WhisperDrop was developed iteratively with Codex and GPT-5.6. They helped trace failures in model downloads and subtitle processing, review Swift code and clean-device packaging, refine the native macOS interface, stabilize timestamp parsing and export, and prepare localization, documentation, tests, and release builds. Every change was validated against the real application and local models; the resulting code and releases are available in this repository
+
+[Watch the short OpenAI Build Week demo](https://youtu.be/ttnF9ukFG0M)
 
 ### Project status
 
