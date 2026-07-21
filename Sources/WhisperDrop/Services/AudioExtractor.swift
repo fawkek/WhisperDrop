@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Foundation
 
 enum AudioExtractor {
@@ -21,9 +21,27 @@ enum AudioExtractor {
         }
         defer { observer.cancel() }
 
-        try await exporter.export(to: output, as: .m4a)
+        exporter.outputURL = output
+        exporter.outputFileType = .m4a
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                exporter.exportAsynchronously {
+                    switch exporter.status {
+                    case .completed:
+                        continuation.resume()
+                    case .cancelled:
+                        continuation.resume(throwing: CancellationError())
+                    case .failed:
+                        continuation.resume(throwing: exporter.error ?? CocoaError(.fileReadUnknown))
+                    default:
+                        continuation.resume(throwing: exporter.error ?? CocoaError(.fileReadUnknown))
+                    }
+                }
+            }
+        } onCancel: {
+            exporter.cancelExport()
+        }
         progress(1)
         return output
     }
 }
-
