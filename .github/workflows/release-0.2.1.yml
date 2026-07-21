@@ -1,0 +1,29 @@
+name: Publish WhisperDrop 0.2.1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build app archive
+        run: ./script/build_and_run.sh --package
+
+      - name: Upload and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shasum -a 256 dist/WhisperDrop-0.2.1-macOS.zip
+          gh release upload v0.2.1 dist/WhisperDrop-0.2.1-macOS.zip --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit v0.2.1 --repo "$GITHUB_REPOSITORY" --draft=false --latest
