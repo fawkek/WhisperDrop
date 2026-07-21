@@ -39,6 +39,8 @@ enum ModelDownloader {
 
     static var totalBytes: Int64 { files.reduce(0) { $0 + $1.size } }
 
+    static var downloadedBytes: Int64 { installedBytes() }
+
     static func download(progress: @escaping @Sendable (Int64, Int64) -> Void) async throws {
         try FileManager.default.createDirectory(at: ModelLocator.modelFolder, withIntermediateDirectories: true)
         try repairValidOversizedFiles()
@@ -53,6 +55,10 @@ enum ModelDownloader {
             if fileSize(destination) == file.size { continue }
 
             let partial = destination.appendingPathExtension("partial")
+            let legacyIncoming = partial.appendingPathExtension("incoming")
+            if FileManager.default.fileExists(atPath: legacyIncoming.path) {
+                try FileManager.default.removeItem(at: legacyIncoming)
+            }
             try FileManager.default.createDirectory(
                 at: destination.deletingLastPathComponent(),
                 withIntermediateDirectories: true
@@ -223,8 +229,6 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
     private var expectedBytes: Int64 = 0
     private var receivedBytes: Int64 = 0
     private var initialBytes: Int64 = 0
-    private var partialURL: URL?
-    private var incomingURL: URL?
     private var rangeHeader: String?
     private var finished = false
 
@@ -244,15 +248,11 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
             receivedBytes = expectedBytes
         }
         initialBytes = receivedBytes
-        self.partialURL = partialURL
         if !FileManager.default.fileExists(atPath: partialURL.path) {
             _ = FileManager.default.createFile(atPath: partialURL.path, contents: nil)
         }
-        let incomingURL = partialURL.appendingPathExtension("incoming")
-        try? FileManager.default.removeItem(at: incomingURL)
-        _ = FileManager.default.createFile(atPath: incomingURL.path, contents: nil)
-        self.incomingURL = incomingURL
-        fileHandle = try FileHandle(forWritingTo: incomingURL)
+        fileHandle = try FileHandle(forWritingTo: partialURL)
+        try fileHandle?.seekToEnd()
         progress(receivedBytes)
         if initialBytes == expectedBytes {
             try fileHandle?.close()
@@ -353,12 +353,7 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
         } else if receivedBytes != expectedBytes {
             finish(throwing: URLError(.cannotDecodeContentData))
         } else {
-            do {
-                try commitIncomingFile()
-                finish(throwing: nil)
-            } catch {
-                finish(throwing: error)
-            }
+            finish(throwing: nil)
         }
     }
 
@@ -367,9 +362,6 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
         finished = true
         try? fileHandle?.close()
         fileHandle = nil
-        if error != nil, let incomingURL {
-            try? FileManager.default.removeItem(at: incomingURL)
-        }
         session?.finishTasksAndInvalidate()
         let continuation = continuation
         self.continuation = nil
@@ -385,23 +377,6 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
             return false
         }
         return contentRange.hasPrefix("bytes \(initialBytes)-")
-    }
-
-    private func commitIncomingFile() throws {
-        guard let partialURL, let incomingURL else { throw URLError(.cannotCreateFile) }
-        try fileHandle?.close()
-        fileHandle = nil
-        let source = try FileHandle(forReadingFrom: incomingURL)
-        let destination = try FileHandle(forWritingTo: partialURL)
-        try destination.seekToEnd()
-        defer {
-            try? source.close()
-            try? destination.close()
-            try? FileManager.default.removeItem(at: incomingURL)
-        }
-        while let data = try source.read(upToCount: 1_048_576), !data.isEmpty {
-            try destination.write(contentsOf: data)
-        }
     }
 
     private static func fileSize(_ url: URL) -> Int64 {

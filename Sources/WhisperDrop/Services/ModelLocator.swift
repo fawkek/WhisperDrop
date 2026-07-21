@@ -54,19 +54,7 @@ enum ModelLocator {
     }
 
     static var downloadedVariantBytes: Int64 {
-        guard let enumerator = FileManager.default.enumerator(
-            at: modelsRoot,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: []
-        ) else { return 0 }
-
-        var total: Int64 = 0
-        for case let url as URL in enumerator where url.pathComponents.contains(downloadVariant) {
-            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  values.isRegularFile == true else { continue }
-            total += Int64(values.fileSize ?? 0)
-        }
-        return min(expectedDownloadBytes, total)
+        ModelDownloader.downloadedBytes
     }
 }
 
