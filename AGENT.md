@@ -13,7 +13,7 @@ WhisperDrop is a focused native macOS utility that creates subtitle files locall
 
 1. If the model is absent, offer to download it.
 2. Show only the file drop/select state.
-3. After accepting a file, remove the drop field completely.
+3. After accepting a file, remove the drop field completely. If the media has multiple audio tracks, show a dedicated localized track-selection screen; skip it for a single track.
 4. Show transcription animation, progress, and file name. Do not show a live line count.
 5. When complete, show the exact cue count, format and encoding controls, and allow saving the selected output.
 6. From the finished state, offer subtitle proofreading as a separate optional flow.
@@ -78,9 +78,10 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 
 - `App/WhisperDropApp.swift`: app entry point, foreground activation, scene and commands.
 - `Models/SubtitleCue.swift`: final subtitle cue value type.
+- `Models/AudioTrackOption.swift`: localized audio-track identity and display metadata.
 - `Models/ExportOptions.swift`: supported subtitle formats and text encodings.
 - `Stores/AppStore.swift`: `@MainActor @Observable` UI state and workflow orchestration.
-- `Services/AudioExtractor.swift`: converts unsupported video containers to temporary M4A with AVFoundation.
+- `Services/AudioExtractor.swift`: discovers audio tracks and extracts the selected track to temporary M4A with AVFoundation or FFmpeg fallback.
 - `Services/TranscriptionService.swift`: WhisperKit setup, transcription, download, and progress callbacks.
 - `Services/ModelLocator.swift`: model/tokenizer locations.
 - `Services/TextImprovementModelLocator.swift`: Qwen proofreading model location, size, and download URL.
@@ -105,6 +106,7 @@ Keep business logic out of SwiftUI views. SwiftUI owns presentation; `AppStore` 
 - `ready`
 - `downloading`
 - `preparing`
+- `selectingAudioTrack`
 - `transcribing`
 - `finished`
 - `needsImprovementModel`
@@ -113,6 +115,8 @@ Keep business logic out of SwiftUI views. SwiftUI owns presentation; `AppStore` 
 - `failed(String)`
 
 Only one phase surface should be visible at a time. Dropping another file while work is active is rejected. Escape cancels active work. Command-O opens media. Command-S saves after completion.
+
+After media selection, inspect its audio streams. One stream proceeds automatically. Two or more streams open a compact native selection list with localized language, codec, channel layout, sample rate, a selected-state checkmark, Cancel, and one prominent Continue action. The selected stream index must be passed through extraction; never silently fall back to the first stream.
 
 Cancelling a Qwen model download stays on the Qwen setup screen and preserves the visible partial byte count. Cancelling active proofreading returns to the finished subtitle screen. Downloading Qwen after transcription returns to the finished screen and requires a second explicit press on proofreading; downloading it after dropping a subtitle file continues directly into proofreading.
 

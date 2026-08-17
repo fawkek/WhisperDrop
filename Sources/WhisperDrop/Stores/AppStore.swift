@@ -18,6 +18,7 @@ final class AppStore {
         case ready
         case downloading
         case preparing
+        case selectingAudioTrack
         case transcribing
         case finished
         case needsImprovementModel
@@ -38,6 +39,8 @@ final class AppStore {
     var proofreadingChangedCueCount: Int?
     private var shouldImproveAfterModelDownload = false
     var selectedFile: URL?
+    var audioTracks: [AudioTrackOption] = []
+    var selectedAudioTrackID: Int?
     var cues: [SubtitleCue] = []
     var exportFormat: SubtitleFormat = .srt {
         didSet {
@@ -55,7 +58,7 @@ final class AppStore {
     }
 
     var isWorking: Bool {
-        [.downloading, .preparing, .transcribing, .downloadingImprovementModel, .improvingSubtitles].contains(phase)
+        [.downloading, .preparing, .selectingAudioTrack, .transcribing, .downloadingImprovementModel, .improvingSubtitles].contains(phase)
     }
 
     func accept(providers: [NSItemProvider]) -> Bool {
@@ -99,34 +102,104 @@ final class AppStore {
         shouldImproveAfterModelDownload = false
         SubtitleDraftStore.clear()
         selectedFile = url
+        audioTracks = []
+        selectedAudioTrackID = nil
         cues = []
         proofreadingChangedCueCount = nil
+        progress = 0
+        let id = UUID()
+        operationID = id
+        phase = .preparing
+        workTask = Task {
+            do {
+                let tracks = try await AudioExtractor.audioTracks(in: url)
+                try Task.checkCancellation()
+                guard operationID == id else { return }
+
+                if tracks.count > 1 {
+                    audioTracks = tracks
+                    selectedAudioTrackID = tracks.first?.id
+                    progress = 0
+                    phase = .selectingAudioTrack
+                } else {
+                    try await transcribe(url, audioTrack: nil, operationID: id)
+                }
+            } catch is CancellationError {
+                guard operationID == id else { return }
+                phase = .ready
+            } catch {
+                guard operationID == id else { return }
+                Self.logger.error("Transcription preparation failed: \(error.localizedDescription, privacy: .public)")
+                AppFileLog.write("Transcription preparation failed: \(error.localizedDescription)")
+                phase = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func selectAudioTrack(_ id: Int) {
+        guard phase == .selectingAudioTrack,
+              audioTracks.contains(where: { $0.id == id }) else { return }
+        selectedAudioTrackID = id
+    }
+
+    func continueWithSelectedAudioTrack() {
+        guard phase == .selectingAudioTrack,
+              let url = selectedFile,
+              let selectedAudioTrackID,
+              let track = audioTracks.first(where: { $0.id == selectedAudioTrackID }) else { return }
+
+        let id = UUID()
+        operationID = id
         progress = 0
         phase = .preparing
         workTask = Task {
             do {
-                let audio = try await AudioExtractor.prepare(url) { value in
-                    Task { @MainActor in self.progress = value * 0.08 }
-                }
-                try Task.checkCancellation()
-                phase = .transcribing
-                let result = try await service.transcribe(
-                    file: audio,
-                    progress: { value in
-                        Task { @MainActor in self.progress = 0.08 + value * 0.92 }
-                    }
-                )
-                cues = result
-                persistDraft()
-                progress = 1
-                phase = .finished
-                if audio != url { try? FileManager.default.removeItem(at: audio) }
+                try await transcribe(url, audioTrack: track, operationID: id)
             } catch is CancellationError {
+                guard operationID == id else { return }
                 phase = .ready
             } catch {
+                guard operationID == id else { return }
+                Self.logger.error("Transcription preparation failed: \(error.localizedDescription, privacy: .public)")
+                AppFileLog.write("Transcription preparation failed: \(error.localizedDescription)")
                 phase = .failed(error.localizedDescription)
             }
         }
+    }
+
+    private func transcribe(
+        _ url: URL,
+        audioTrack: AudioTrackOption?,
+        operationID id: UUID
+    ) async throws {
+        let audio = try await AudioExtractor.prepare(url, audioTrack: audioTrack) { value in
+            Task { @MainActor in
+                guard self.operationID == id else { return }
+                self.progress = value * 0.08
+            }
+        }
+        defer {
+            if audio != url { try? FileManager.default.removeItem(at: audio) }
+        }
+
+        try Task.checkCancellation()
+        guard operationID == id else { throw CancellationError() }
+        phase = .transcribing
+        let result = try await service.transcribe(
+            file: audio,
+            progress: { value in
+                Task { @MainActor in
+                    guard self.operationID == id else { return }
+                    self.progress = 0.08 + value * 0.92
+                }
+            }
+        )
+        try Task.checkCancellation()
+        guard operationID == id else { throw CancellationError() }
+        cues = result
+        persistDraft()
+        progress = 1
+        phase = .finished
     }
 
     private func loadSubtitlesForImprovement(_ url: URL) {
@@ -190,6 +263,7 @@ final class AppStore {
 
     func cancel() {
         let wasDownloading = phase == .downloading
+        let wasSelectingAudioTrack = phase == .selectingAudioTrack
         let wasNeedsImprovementModel = phase == .needsImprovementModel
         let wasImprovementDownload = phase == .downloadingImprovementModel
         let wasImproving = phase == .improvingSubtitles
@@ -198,6 +272,8 @@ final class AppStore {
         workTask = nil
         if wasDownloading {
             phase = .needsModel
+        } else if wasSelectingAudioTrack {
+            phase = .ready
         } else if wasNeedsImprovementModel || wasImprovementDownload {
             shouldImproveAfterModelDownload = false
             phase = .needsImprovementModel
@@ -211,6 +287,11 @@ final class AppStore {
         if wasDownloading { downloadedModelBytes = 0 }
         if wasImprovementDownload { improvementDownloadBytes = TextImprovementModelLocator.downloadedBytes }
         if wasImproving { improvementWord = "" }
+        if wasSelectingAudioTrack {
+            selectedFile = nil
+            audioTracks = []
+            selectedAudioTrackID = nil
+        }
     }
 
     func improveSubtitles() {
@@ -328,6 +409,8 @@ final class AppStore {
     func reset() {
         SubtitleDraftStore.clear()
         selectedFile = nil
+        audioTracks = []
+        selectedAudioTrackID = nil
         cues = []
         progress = 0
         improvementWord = ""

@@ -31,6 +31,7 @@ WhisperDrop — бесплатное нативное приложение дл�
 
 - Распознаёт речь локально: исходные медиафайлы не отправляются на сервер
 - Принимает видео, аудио или готовые субтитры: перетащите файл в окно приложения
+- Предлагает выбрать нужную аудиодорожку, если в видео их несколько
 - Автоматически определяет язык речи
 - Создаёт `.srt`, `.vtt`, `.ass` и `.txt`
 - Позволяет выбрать кодировку; по умолчанию — UTF-8 и SRT
@@ -41,9 +42,10 @@ WhisperDrop — бесплатное нативное приложение дл�
 
 1. При первом запуске приложение предложит скачать модель распознавания **OpenAI Whisper Large v3**. Это наиболее точная доступная модель; она занимает примерно 1,6 ГБ и хранится на Mac
 2. Перетащите видео или аудио в окно WhisperDrop
-3. Дождитесь завершения распознавания. На экране будет круговой индикатор прогресса
-4. Выберите формат и кодировку, если стандартные SRT и UTF-8 вам не подходят
-5. Нажмите «Сохранить субтитры»
+3. Если в файле несколько аудиодорожек, выберите язык, который нужно распознать
+4. Дождитесь завершения распознавания. На экране будет круговой индикатор прогресса
+5. Выберите формат и кодировку, если стандартные SRT и UTF-8 вам не подходят
+6. Нажмите «Сохранить субтитры»
 
 Для вычитки субтитров приложение при необходимости отдельно скачает небольшую локальную модель Qwen3 (около 430 МБ). Она необязательна: базовое создание субтитров работает без неё
 
@@ -122,6 +124,7 @@ WhisperDrop is a free native macOS app that turns audio and video into subtitle 
 
 - On-device transcription: your source media is never uploaded to a server
 - Accepts video, audio, or an existing subtitle file — simply drop it onto the app window
+- Lets you choose the audio track when a video contains more than one
 - Automatically detects the spoken language
 - Exports `.srt`, `.vtt`, `.ass`, and `.txt`
 - Lets you choose the text encoding; UTF-8 and SRT are the defaults
@@ -132,9 +135,10 @@ WhisperDrop is a free native macOS app that turns audio and video into subtitle 
 
 1. On first launch, WhisperDrop asks to download **OpenAI Whisper Large v3**. It is the most accurate available model, takes about 1.6 GB, and stays on your Mac
 2. Drop a video or audio file onto the WhisperDrop window
-3. Wait for transcription to finish; progress is shown with a circular indicator
-4. Choose an output format and encoding if the default SRT / UTF-8 combination is not right for your workflow
-5. Click **Save Subtitles**
+3. If the file contains multiple audio tracks, choose the language you want to transcribe
+4. Wait for transcription to finish; progress is shown with a circular indicator
+5. Choose an output format and encoding if the default SRT / UTF-8 combination is not right for your workflow
+6. Click **Save Subtitles**
 
 If you choose subtitle proofreading, the app may download a separate local Qwen3 model (about 430 MB). It is optional and is not needed for transcription
 

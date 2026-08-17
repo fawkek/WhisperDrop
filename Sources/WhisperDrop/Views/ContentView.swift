@@ -14,6 +14,8 @@ struct ContentView: View {
                 FileDropView(store: store, isTargeted: isTargeted)
             case .preparing, .transcribing:
                 TranscribingView(store: store)
+            case .selectingAudioTrack:
+                AudioTrackSelectionView(store: store)
             case .finished:
                 TranscriptionFinishedView(store: store)
             case .needsImprovementModel, .downloadingImprovementModel:
@@ -28,6 +30,113 @@ struct ContentView: View {
         .frame(width: 600, height: 600)
         .background(GlassWindowConfigurator().frame(width: 0, height: 0))
         .onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: store.accept)
+    }
+}
+
+private struct AudioTrackSelectionView: View {
+    let store: AppStore
+
+    var body: some View {
+        StateLayout {
+            VStack(spacing: 8) {
+                Image(systemName: "waveform.badge.magnifyingglass")
+                    .font(.system(size: 38, weight: .light))
+                    .foregroundStyle(Color.accentColor)
+
+                Text(AppText.pick("Выберите аудиодорожку", "Choose an audio track"))
+                    .font(.system(size: 17, weight: .semibold))
+
+                Text(store.selectedFile?.lastPathComponent ?? "")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 390)
+            }
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(store.audioTracks) { track in
+                        AudioTrackRow(
+                            track: track,
+                            isSelected: store.selectedAudioTrackID == track.id
+                        ) {
+                            store.selectAudioTrack(track.id)
+                        }
+                    }
+                }
+                .padding(2)
+            }
+            .scrollIndicators(.automatic)
+            .frame(width: 390)
+            .frame(maxHeight: 220)
+
+            Text(AppText.pick(
+                "Для распознавания будет использована только выбранная дорожка",
+                "Only the selected track will be used for transcription"
+            ))
+            .font(.system(size: 11))
+            .foregroundStyle(.tertiary)
+
+            HStack(spacing: 10) {
+                Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+                    .keyboardShortcut(.cancelAction)
+
+                Button(AppText.pick("Продолжить", "Continue"), action: store.continueWithSelectedAudioTrack)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .controlSize(.large)
+        }
+    }
+}
+
+private struct AudioTrackRow: View {
+    let track: AudioTrackOption
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: "speaker.wave.2")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(track.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+
+                    if !track.details.isEmpty {
+                        Text(track.details)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .opacity(isSelected ? 1 : 0)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 58)
+            .background(
+                isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.045),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
