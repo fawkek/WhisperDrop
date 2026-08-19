@@ -1,7 +1,7 @@
 # WhisperDrop — agent context
 
 - About shows the purpose, version, build, embedded Git commit, `https://x.com/fawkek_obj`, and `https://github.com/fawkek/WhisperDrop`.
-- Release metadata defaults to version `0.2.1`, build `3`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
+- Release metadata defaults to version `0.2.2`, build `4`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
 - `./script/build_and_run.sh --package` builds Release, signs with `DEVELOPER_ID_APPLICATION` when set (otherwise ad hoc), verifies the signature, and creates `dist/WhisperDrop-<version>-macOS.zip`.
 - When both `DEVELOPER_ID_APPLICATION` and `NOTARY_PROFILE` are set, packaging submits the ZIP with `notarytool`, staples and validates the app, then recreates the final ZIP.
 
@@ -97,6 +97,8 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - `Views/TranscribingView.swift`: transcription-only UI and waveform/progress animation.
 
 Keep business logic out of SwiftUI views. SwiftUI owns presentation; `AppStore` owns user-flow state; services own inference and media processing.
+
+FFmpeg extraction always downmixes to stereo AAC at 48 kHz before handing audio to WhisperKit. This avoids Core Audio error `2003334207` for six-channel E-AC-3/5.1 sources whose AAC channel layout is not readable by AVAudioFile. Validate the completed M4A with `AVAudioFile` before transcription and show a localized extraction error if validation fails.
 
 ## State machine
 

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import WhisperDrop
 
@@ -21,5 +22,19 @@ struct AudioExtractorTests {
         #expect(tracks[1].languageCode == "kor")
         #expect(tracks[1].codec == "aac (LC)")
         #expect(tracks[1].details.contains("AAC"))
+    }
+
+    @Test func ffmpegDownmixesMultichannelAudioForCoreAudioCompatibility() {
+        let arguments = AudioExtractor.ffmpegArguments(
+            source: URL(fileURLWithPath: "/tmp/source.mkv"),
+            output: URL(fileURLWithPath: "/tmp/output.m4a"),
+            audioTrackIndex: 2
+        )
+
+        let command = arguments.joined(separator: " ")
+        #expect(command.contains("-map 0:a:2"))
+        #expect(command.contains("-ac 2"))
+        #expect(command.contains("-ar 48000"))
+        #expect(command.contains("-movflags +faststart"))
     }
 }

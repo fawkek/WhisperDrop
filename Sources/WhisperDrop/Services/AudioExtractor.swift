@@ -199,13 +199,11 @@ enum AudioExtractor {
             try? FileManager.default.removeItem(at: errorURL)
         }
         process.executableURL = executable
-        process.arguments = [
-            "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-i", source.path,
-            "-map", "0:a:\(audioTrackIndex)", "-vn",
-            "-c:a", "aac", "-b:a", "128k",
-            output.path,
-        ]
+        process.arguments = ffmpegArguments(
+            source: source,
+            output: output,
+            audioTrackIndex: audioTrackIndex
+        )
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errorFile
         progress(0.01)
@@ -237,9 +235,36 @@ enum AudioExtractor {
                 : message)
         }
 
-        AppFileLog.write("FFmpeg audio extraction succeeded: \(source.lastPathComponent), audioTrack=\(audioTrackIndex)")
+        do {
+            let file = try AVAudioFile(forReading: output)
+            guard file.length > 0 else { throw CocoaError(.fileReadCorruptFile) }
+        } catch {
+            try? FileManager.default.removeItem(at: output)
+            AppFileLog.write("Core Audio validation failed after FFmpeg extraction: \(error.localizedDescription)")
+            throw ExtractionError(details: AppText.pick(
+                "Подготовленная аудиодорожка не читается macOS.",
+                "The prepared audio track cannot be read by macOS."
+            ))
+        }
+
+        AppFileLog.write("FFmpeg audio extraction succeeded: \(source.lastPathComponent), audioTrack=\(audioTrackIndex), stereo=true")
         progress(1)
         return output
+    }
+
+    static func ffmpegArguments(
+        source: URL,
+        output: URL,
+        audioTrackIndex: Int
+    ) -> [String] {
+        [
+            "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-i", source.path,
+            "-map", "0:a:\(audioTrackIndex)", "-vn",
+            "-ac", "2", "-ar", "48000",
+            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+            output.path,
+        ]
     }
 
     private static var ffmpegExecutable: URL? {
