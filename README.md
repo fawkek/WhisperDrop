@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/fawkek/WhisperDrop/releases/download/v0.2.2/WhisperDrop-0.2.2-macOS.zip"><b>↓ Скачать тестовую сборку для macOS</b></a>
+  <a href="https://github.com/fawkek/WhisperDrop/releases/download/v0.2.3/WhisperDrop-0.2.3-macOS.zip"><b>↓ Скачать тестовую сборку для macOS</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/fawkek/WhisperDrop/releases/tag/v0.2.2">Все релизы</a>
+  <a href="https://github.com/fawkek/WhisperDrop/releases/tag/v0.2.3">Все релизы</a>
 </p>
 
 ---
@@ -70,7 +70,7 @@ WhisperDrop — бесплатное нативное приложение дл�
 
 #### Скачать готовое приложение
 
-Скачайте [WhisperDrop 0.2.2 для macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.2.2/WhisperDrop-0.2.2-macOS.zip), распакуйте ZIP и перенесите `WhisperDrop.app` в папку «Программы». Это тестовая сборка без Apple Developer ID и notarization, поэтому macOS может показать предупреждение при первом открытии. Модель распознавания не входит в архив: приложение предложит скачать её при первом запуске
+Скачайте [WhisperDrop 0.2.3 для macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.2.3/WhisperDrop-0.2.3-macOS.zip), распакуйте ZIP и перенесите `WhisperDrop.app` в папку «Программы». Это тестовая сборка без Apple Developer ID и notarization, поэтому macOS может показать предупреждение при первом открытии. Модель распознавания не входит в архив: приложение предложит скачать её при первом запуске
 
 #### Собрать из исходного кода
 
@@ -150,7 +150,7 @@ Drop an `.srt` or `.vtt` file onto the first WhisperDrop screen instead of a vid
 
 #### Download the app
 
-Download [WhisperDrop 0.2.2 for macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.2.2/WhisperDrop-0.2.2-macOS.zip), unzip it, and move `WhisperDrop.app` to Applications. This is a test build without a Developer ID signature or notarization, so macOS may show a warning the first time it is opened. The transcription model is not included; the app offers to download it on first launch
+Download [WhisperDrop 0.2.3 for macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.2.3/WhisperDrop-0.2.3-macOS.zip), unzip it, and move `WhisperDrop.app` to Applications. This is a test build without a Developer ID signature or notarization, so macOS may show a warning the first time it is opened. The transcription model is not included; the app offers to download it on first launch
 
 #### Build from source
 
