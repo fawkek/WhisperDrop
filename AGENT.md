@@ -70,7 +70,7 @@ The current icon is a dark navy macOS tile with a large, perfectly symmetrical b
 - BaseRT Q4 model download size is exactly `430,114,816` bytes. Downloads use the same `ResumableFileTransfer` with HTTP `Range`, writing every received block directly to the persistent `.partial` file so an interruption preserves real progress. A CDN response that ignores a range request must preserve existing progress. Never delete a partial download merely because a duplicate tail was received: trim it to the expected length and then validate/load it.
 - Cancelling BaseRT-model download must stay on the proofreading model screen and immediately show the stored `.partial` byte count. Never route cancellation to the finished subtitle screen or show zero bytes when a partial file exists.
 - Completed transcription cues must be written atomically to `~/Library/Application Support/WhisperDrop/Recovery/CurrentSubtitleDraft.json` before proofreading starts. Restore this draft to the finished screen after a crash or relaunch, update it after successful proofreading, and clear it only when the user starts another media file or presses `Другой файл` / `Another file`.
-- Qwen proofreading must preserve cue count, order, start times, and end times. It may change only text spelling, punctuation, capitalization, and spacing. Do not translate, summarize, or rewrite meaning.
+- Qwen proofreading preserves order, start times, and end times and may change only text spelling, punctuation, capitalization, and spacing. A deterministic post-filter may remove entire cues only when their normalized text matches a known Whisper hallucination such as `Субтитры сделал Дима Торжок` or `Девушки отдыхают`. Do not translate, summarize, or rewrite meaning.
 
 `ModelLocator.swift` is the single source of truth for model paths and installation checks. Application Support is the permanent no-prompt model store; no folder-permission onboarding window is needed.
 
@@ -210,7 +210,7 @@ Treat the following as required release work, not optional polish:
 - Compare exported SRT timestamps against playback and verify monotonic, non-overlapping cues.
 - Define cue splitting limits for maximum characters, reading speed, and line count instead of relying only on raw Whisper segments.
 - Add deterministic subtitle post-processing before/alongside Qwen: max line length, max two visual lines per cue, reading-speed limits, pause-aware splitting from word timestamps, and dialogue line breaks where safe.
-- Detect and suppress repeated hallucinated phrases during silence or credits.
+- Detect and suppress repeated hallucinated phrases during silence or credits. The deterministic proofreading post-filter already removes normalized variants of `Субтитры сделал Дима Торжок` and `Девушки отдыхают`; expand it only with regression examples rather than broad semantic guesses.
 - Preserve exact final cue count separately from the live draft estimate.
 - Add regression fixtures and tests for Russian, English, mixed speech, punctuation, Unicode, and hour-long timestamps.
 

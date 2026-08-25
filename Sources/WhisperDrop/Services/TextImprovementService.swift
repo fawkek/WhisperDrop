@@ -77,9 +77,11 @@ actor TextImprovementService {
             progress(Double(chunkIndex + 1) / Double(chunks.count), correctedTexts.last ?? "")
         }
 
-        Self.logger.info("BaseRT proofreading run finished")
-        AppFileLog.write("BaseRT native Metal proofreading run finished")
-        return improved
+        let cleaned = SubtitleHallucinationFilter.clean(improved)
+        let removedCount = improved.count - cleaned.count
+        Self.logger.info("BaseRT proofreading run finished: removedHallucinations=\(removedCount, privacy: .public)")
+        AppFileLog.write("BaseRT native Metal proofreading run finished: removedHallucinations=\(removedCount)")
+        return cleaned
     }
 
     private func runModel(cues: [SubtitleCue]) throws -> [String] {

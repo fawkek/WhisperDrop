@@ -430,10 +430,31 @@ final class AppStore {
     }
 
     private static func changedCueCount(original: [SubtitleCue], improved: [SubtitleCue]) -> Int {
-        zip(original, improved).reduce(0) { total, pair in
-            let originalText = pair.0.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let improvedText = pair.1.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let improvedByTiming = Dictionary(
+            improved.map { (CueTiming(start: $0.start, end: $0.end), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let originalTimings = Set(original.map { CueTiming(start: $0.start, end: $0.end) })
+        let changedOriginals = original.reduce(0) { total, cue in
+            let key = CueTiming(start: cue.start, end: cue.end)
+            guard let improvedCue = improvedByTiming[key] else { return total + 1 }
+            let originalText = cue.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let improvedText = improvedCue.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return total + (originalText == improvedText ? 0 : 1)
+        }
+        let addedCues = improved.reduce(0) { total, cue in
+            total + (originalTimings.contains(CueTiming(start: cue.start, end: cue.end)) ? 0 : 1)
+        }
+        return changedOriginals + addedCues
+    }
+
+    private struct CueTiming: Hashable {
+        let startMilliseconds: Int64
+        let endMilliseconds: Int64
+
+        init(start: TimeInterval, end: TimeInterval) {
+            startMilliseconds = Int64((start * 1_000).rounded())
+            endMilliseconds = Int64((end * 1_000).rounded())
         }
     }
 

@@ -35,7 +35,7 @@ WhisperDrop — бесплатное нативное приложение дл�
 - Автоматически определяет язык речи
 - Создаёт `.srt`, `.vtt`, `.ass` и `.txt`
 - Позволяет выбрать кодировку; по умолчанию — UTF-8 и SRT
-- По желанию исправляет орфографию, пунктуацию, регистр и лишние пробелы в уже готовых субтитрах. Таймкоды, порядок и число реплик при этом сохраняются
+- По желанию исправляет орфографию, пунктуацию, регистр и лишние пробелы в уже готовых субтитрах, а также удаляет известные ложные реплики Whisper в тишине. Таймкоды и порядок остальных реплик сохраняются
 - Подстраивается под светлую и тёмную тему macOS и использует русский или английский интерфейс в зависимости от языка системы
 
 ### Как это работает
@@ -128,7 +128,7 @@ WhisperDrop is a free native macOS app that turns audio and video into subtitle 
 - Automatically detects the spoken language
 - Exports `.srt`, `.vtt`, `.ass`, and `.txt`
 - Lets you choose the text encoding; UTF-8 and SRT are the defaults
-- Optionally proofreads spelling, punctuation, capitalization, and spacing in completed subtitles while preserving every cue's timing, order, and count
+- Optionally proofreads spelling, punctuation, capitalization, and spacing and removes known Whisper hallucinations from silence while preserving the timing and order of the remaining cues
 - Follows the macOS light/dark appearance and uses Russian or English according to the system language
 
 ### How it works
