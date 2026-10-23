@@ -20,7 +20,10 @@ enum SubtitleExporter {
         case .srt: SRTFormatter.render(cues)
         case .vtt: renderVTT(cues)
         case .ass: renderASS(cues)
-        case .txt: cues.map { WhisperTextSanitizer.clean($0.text) }.joined(separator: "\n") + "\n"
+        case .txt:
+            cues.map {
+                WhisperTextSanitizer.clean($0.text).replacingOccurrences(of: "\n", with: " ")
+            }.joined(separator: "\n") + "\n"
         }
     }
 

@@ -42,13 +42,41 @@ actor TranscriptionService {
         var discovered: [TranscriptionSegment] = []
         for result in results { discovered.append(contentsOf: result.segments) }
         progress(1)
-        return discovered
-            .sorted { $0.start < $1.start }
-            .compactMap { segment in
-                let text = WhisperTextSanitizer.clean(segment.text)
-                guard !text.isEmpty, segment.end > segment.start else { return nil }
-                return SubtitleCue(start: Double(segment.start), end: Double(segment.end), text: text)
-            }
+        return Self.cues(from: discovered.map(Self.segment))
+    }
+
+    /// Whisper segments → cleaned, readable, well-timed subtitle cues.
+    static func cues(
+        from segments: [TranscribedSegment],
+        layout: SubtitleLayout = .standard
+    ) -> [SubtitleCue] {
+        let usable = segments.filter {
+            $0.end > $0.start && !WhisperTextSanitizer.clean($0.text).isEmpty
+        }
+        let cleaned = SubtitleHallucinationFilter.clean(segments: usable)
+        let removed = usable.count - cleaned.count
+        if removed > 0 { AppFileLog.write("Removed likely hallucinated segments: \(removed)") }
+        let cues = CueSegmenter.cues(from: cleaned, layout: layout)
+        return CueTimingNormalizer.normalize(cues, layout: layout)
+    }
+
+    private static func segment(_ segment: TranscriptionSegment) -> TranscribedSegment {
+        TranscribedSegment(
+            start: Double(segment.start),
+            end: Double(segment.end),
+            text: segment.text,
+            words: (segment.words ?? []).map {
+                TranscribedWord(
+                    text: $0.word,
+                    start: Double($0.start),
+                    end: Double($0.end),
+                    probability: Double($0.probability)
+                )
+            },
+            avgLogprob: Double(segment.avgLogprob),
+            compressionRatio: Double(segment.compressionRatio),
+            noSpeechProb: Double(segment.noSpeechProb)
+        )
     }
 
     private func engine() async throws -> WhisperKit {

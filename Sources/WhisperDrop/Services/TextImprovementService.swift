@@ -72,7 +72,11 @@ actor TextImprovementService {
             }
             guard correctedTexts.count == chunk.count else { throw InvalidModelOutputError() }
             improved.append(contentsOf: zip(chunk, correctedTexts).map { cue, text in
-                SubtitleCue(start: cue.start, end: cue.end, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+                SubtitleCue(
+                    start: cue.start,
+                    end: cue.end,
+                    text: LineBreaker.rewrapIfNeeded(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                )
             })
             progress(Double(chunkIndex + 1) / Double(chunks.count), correctedTexts.last ?? "")
         }
