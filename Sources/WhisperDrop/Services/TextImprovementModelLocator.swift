@@ -36,8 +36,8 @@ enum ProofreadingModelCatalog {
                 qwenTokenizer,
                 .init(path: "tokenizer_config.json", size: 1_139),
             ],
-            russianNote: "Самая лёгкая и быстрая",
-            englishNote: "Smallest and fastest"
+            russianNote: "Самая компактная, экспериментальная",
+            englishNote: "Smallest, experimental"
         ),
         ProofreadingModel(
             id: "qwen3.5-2b",
@@ -51,8 +51,8 @@ enum ProofreadingModelCatalog {
                 qwenTokenizer,
                 .init(path: "tokenizer_config.json", size: 1_139),
             ],
-            russianNote: "Баланс качества и скорости",
-            englishNote: "Balance of quality and speed"
+            russianNote: "Компактнее, ниже точность",
+            englishNote: "Smaller, lower accuracy"
         ),
         ProofreadingModel(
             id: "qwen3.5-4b",
@@ -66,8 +66,8 @@ enum ProofreadingModelCatalog {
                 qwenTokenizer,
                 .init(path: "tokenizer_config.json", size: 1_139),
             ],
-            russianNote: "Точнее, но крупнее и медленнее",
-            englishNote: "More accurate, larger and slower"
+            russianNote: "По умолчанию, лучший результат в тестах",
+            englishNote: "Default, best result in our tests"
         ),
         ProofreadingModel(
             id: "gemma-4-e2b",
@@ -82,14 +82,15 @@ enum ProofreadingModelCatalog {
                 .init(path: "tokenizer.json", size: 32_169_626, sha256: "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"),
                 .init(path: "tokenizer_config.json", size: 2_740),
             ],
-            russianNote: "Другая семья моделей, крупная",
-            englishNote: "Different model family, large"
+            russianNote: "Экспериментальная, крупная",
+            englishNote: "Experimental, large"
         ),
     ]
 
-    /// The model offered first for a language, chosen by testing on subtitles with typos.
-    static func defaultModelID(forLanguage language: String) -> String {
-        language.hasPrefix("ru") ? "qwen3.5-2b" : "qwen3.5-2b"
+    /// 4B performed best on both Russian and English subtitle fixtures.
+    /// Keep the language entry point for future language-specific defaults.
+    static func defaultModelID(forLanguage _: String) -> String {
+        "qwen3.5-4b"
     }
 
     static func model(id: String) -> ProofreadingModel? { models.first { $0.id == id } }
@@ -133,13 +134,13 @@ enum TextImprovementModelLocator {
         modelsFolder.appending(path: model.folderName, directoryHint: .isDirectory)
     }
 
-    static func isInstalled(_ model: ProofreadingModel) -> Bool {
-        let folder = folder(for: model)
+    static func isInstalled(_ model: ProofreadingModel, in directory: URL? = nil) -> Bool {
+        let folder = directory ?? folder(for: model)
         return model.files.allSatisfy { ModelDownloader.fileSize(folder.appending(path: $0.path)) == $0.size }
     }
 
-    static func downloadedBytes(_ model: ProofreadingModel) -> Int64 {
-        let folder = folder(for: model)
+    static func downloadedBytes(_ model: ProofreadingModel, in directory: URL? = nil) -> Int64 {
+        let folder = directory ?? folder(for: model)
         return model.files.reduce(0) { total, file in
             let url = folder.appending(path: file.path)
             if ModelDownloader.fileSize(url) == file.size { return total + file.size }

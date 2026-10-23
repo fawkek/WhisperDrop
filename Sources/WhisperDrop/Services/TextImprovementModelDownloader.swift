@@ -8,15 +8,26 @@ enum TextImprovementModelDownloader {
         progress: @escaping @Sendable (Int64, Int64) -> Void
     ) async throws {
         let folder = TextImprovementModelLocator.folder(for: model)
+        try await downloadFiles(model, in: folder, progress: progress)
+        removeLegacyModels()
+    }
+
+    /// Separate file installation from the user store and legacy-model cleanup.
+    static func downloadFiles(
+        _ model: ProofreadingModel,
+        in folder: URL,
+        progress: @escaping @Sendable (Int64, Int64) -> Void
+    ) async throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let total = model.size
-        progress(TextImprovementModelLocator.downloadedBytes(model), total)
+        progress(TextImprovementModelLocator.downloadedBytes(model, in: folder), total)
 
         for file in model.files {
             try Task.checkCancellation()
             let destination = folder.appending(path: file.path)
             if ModelDownloader.fileSize(destination) == file.size { continue }
-            let before = TextImprovementModelLocator.downloadedBytes(model) - min(file.size, ModelDownloader.fileSize(destination.appendingPathExtension("partial")))
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let before = TextImprovementModelLocator.downloadedBytes(model, in: folder) - min(file.size, ModelDownloader.fileSize(destination.appendingPathExtension("partial")))
             let partial = destination.appendingPathExtension("partial")
             let url = URL(string: "https://huggingface.co/\(model.repository)/resolve/main/\(file.path)?download=true")!
             var retry = 0
@@ -48,7 +59,6 @@ enum TextImprovementModelDownloader {
             }
             try FileManager.default.moveItem(at: partial, to: destination)
         }
-        removeLegacyModels()
         progress(total, total)
     }
 

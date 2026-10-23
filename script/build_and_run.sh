@@ -5,8 +5,8 @@ MODE="${1:-run}"
 APP_NAME="WhisperDrop"
 BUNDLE_ID="com.igorsevcenko.WhisperDrop"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${APP_VERSION:-0.3.1}"
-APP_BUILD="${APP_BUILD:-7}"
+APP_VERSION="${APP_VERSION:-0.4.0}"
+APP_BUILD="${APP_BUILD:-8}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -26,15 +26,23 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 cd "$ROOT_DIR"
 swift build -c "$CONFIGURATION"
 BUILD_BINARY="$(swift build -c "$CONFIGURATION" --show-bin-path)/$APP_NAME"
+MLX_METALLIB="$("$ROOT_DIR/script/build_mlx_metallib.sh")"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
+# MLX searches next to the executable for a library named mlx.metallib.
+# Stage it before signing so the signature and --package archive include it.
+cp "$MLX_METALLIB" "$APP_MACOS/mlx.metallib"
 chmod +x "$APP_BINARY"
 mkdir -p "$APP_RESOURCES/Tokenizer"
 cp "$ROOT_DIR/Models/tokenizer/tokenizer.json" "$APP_RESOURCES/Tokenizer/tokenizer.json"
 cp "$ROOT_DIR/Models/tokenizer/tokenizer_config.json" "$APP_RESOURCES/Tokenizer/tokenizer_config.json"
 cp "$ROOT_DIR/Models/tokenizer/config.json" "$APP_RESOURCES/Tokenizer/config.json"
+mkdir -p "$APP_RESOURCES/Licenses"
+for dependency in mlx-swift mlx-swift-lm swift-transformers; do
+  cp "$ROOT_DIR/.build/checkouts/$dependency/LICENSE" "$APP_RESOURCES/Licenses/$dependency-LICENSE.txt"
+done
 
 xcrun actool "$ROOT_DIR/Assets/Assets.xcassets" \
   --compile "$APP_RESOURCES" \

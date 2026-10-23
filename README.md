@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/fawkek/WhisperDrop/releases/download/v0.3.1/WhisperDrop-0.3.1-macOS.zip"><b>↓ Скачать тестовую сборку для macOS</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/fawkek/WhisperDrop/releases/tag/v0.3.1">Все релизы</a>
+  <a href="https://github.com/fawkek/WhisperDrop/releases">Все релизы</a>
 </p>
 
 ---
@@ -50,7 +50,7 @@ WhisperDrop — бесплатное нативное приложение дл�
 5. Выберите формат и кодировку, если стандартные SRT и UTF-8 вам не подходят
 6. Нажмите «Сохранить субтитры»
 
-Для вычитки субтитров приложение при необходимости отдельно скачает небольшую локальную модель Qwen3 (около 430 МБ). Она необязательна: базовое создание субтитров работает без неё
+Для вычитки субтитров приложение отдельно скачивает выбранную MLX-модель вместе с её токенизатором (около 0,65–3,58 ГБ). Вычитка необязательна: базовое создание субтитров работает без неё
 
 ### Исправить готовые субтитры
 
@@ -79,7 +79,7 @@ WhisperDrop — бесплатное нативное приложение дл�
 
 Приложение также можно собрать из исходного кода:
 
-1. Установите Xcode Command Line Tools и macOS 14 или новее
+1. Для сборки нужен полный Xcode со Swift 6.3 или новее (проверено с Xcode 26.6); готовое приложение рассчитано на macOS 14 или новее. Выберите Xcode командой `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` и установите Metal Toolchain: `xcodebuild -downloadComponent MetalToolchain`
 2. Склонируйте репозиторий или скачайте его ZIP-архив
 3. В Терминале откройте папку проекта и выполните:
 
@@ -87,7 +87,7 @@ WhisperDrop — бесплатное нативное приложение дл�
 ./script/build_and_run.sh
 ```
 
-Скрипт соберёт и откроет `WhisperDrop.app`. Готовое приложение находится в `dist/WhisperDrop.app`
+Скрипт соберёт и откроет `WhisperDrop.app`. Готовое приложение находится в `dist/WhisperDrop.app`. При первой сборке Xcode компилирует Metal-шейдеры MLX; следующие сборки используют кэш в `.build/mlx-metal`, пока не изменятся зависимости или Xcode. Библиотека `mlx.metallib` входит в приложение и ZIP, созданный с `--package`; пользователям готового приложения Xcode не нужен
 
 ### Приватность и хранение данных
 
@@ -97,21 +97,33 @@ WhisperDrop обрабатывает аудио, видео и текст суб
 ~/Library/Application Support/WhisperDrop/Models/
 ```
 
-Их можно удалить, чтобы освободить место: при следующем использовании приложение снова предложит загрузку. Встроенный токенизатор уже входит в приложение и отдельно пользователю не нужен
+Их можно удалить, чтобы освободить место: при следующем использовании приложение снова предложит загрузку. Токенизатор распознавания входит в приложение; токенизатор вычитки скачивается вместе с выбранной моделью. Отдельно устанавливать их не нужно
 
 ### Как устроена вычитка
 
-Вычитку выполняет небольшая модель Qwen3 0.6B через готовый движок BaseRT для Metal. Он лежит в репозитории в собранном виде (`Runtime/BaseRT/basert-complete` и `baseRT.metallib`), его исходного кода здесь нет. Приложение запускает его только на время вычитки: передаёт текст реплик и получает исправленный текст обратно
+В текущем исходном коде вычитка выполняется локально через открытый [MLX Swift](https://github.com/ml-explore/mlx-swift) (MIT) и [MLX Swift LM](https://github.com/ml-explore/mlx-swift-lm) (MIT). Встроенный движок работает в процессе приложения и использует Metal на Apple Silicon. Модель загружается на время вычитки и затем освобождается из памяти; BaseRT больше не входит в сборку
 
-Модель маленькая и может ошибаться, поэтому WhisperDrop принимает только безопасные правки: пунктуацию, регистр, пробелы и замену слова с опечаткой на настоящее слово по системной проверке орфографии. Правильно написанные слова не меняются, таймкоды и порядок реплик сохраняются
+На экране вычитки можно выбрать Qwen3.5 0.8B, 2B, 4B или Gemma 4 E2B в формате MLX 4-bit. Размер загрузки показан рядом с выбором модели. Файлы хранятся в `Models/Proofreading/<repository-name>/` внутри Application Support; загрузчик проверяет точный размер каждого файла и SHA-256 весов и токенизатора. По умолчанию выбрана **Qwen3.5 4B** для русского и английского; сохранённый выбор пользователя имеет приоритет
 
-SHA-256 движка: `basert-complete` — `e7344eeabbc92bd87340018d64e4dfda3f42b1f4370a6c11db050e6b4c2821f8`, `baseRT.metallib` — `e9fd339e047e9a045dad2e0400ab8de11aac41a60a1c0a2fa29cf38c67c014c2`
+
+| Модель | Загрузка | Статус |
+| --- | ---: | --- |
+| Qwen3.5 0.8B | 0,65 ГБ | Компактная, экспериментальная |
+| Qwen3.5 2B | 1,74 ГБ | Меньше размер, ниже точность |
+| Qwen3.5 4B | 3,05 ГБ | По умолчанию; лучший результат в коротких тестах |
+| Gemma 4 E2B | 3,58 ГБ | Экспериментальная |
+
+В коротких тестах 4B снизила число ошибок с 13 до 8 на русском и с 13 до 3 на английском. Маленькие Qwen иногда объединяют соседние реплики, Gemma иногда меняет их содержимое; такие ответы отклоняются проверкой формата или защитным фильтром, и исходный текст сохраняется. Это ограниченный набор примеров, а не оценка точности на любых субтитрах. [Результаты и условия проверки](Docs/MLX-proofreading-benchmark.md)
+
+Модели могут ошибаться, поэтому WhisperDrop принимает только безопасные правки: пунктуацию, регистр, пробелы и замену слова с опечаткой на настоящее слово по системной проверке орфографии. Правильно написанные слова не меняются, таймкоды и порядок реплик сохраняются
+
+Хеши файлов моделей заданы в `Sources/WhisperDrop/Services/TextImprovementModelLocator.swift`. Поддержка MLX относится к разрабатываемой версии 0.4.0; опубликованная версия 0.3.1 использует прежний движок
 
 ### Требования
 
 - macOS 14 Sonoma или новее
-- Свободное место: около 1,7 ГБ для модели распознавания; ещё около 430 МБ — только если нужна функция вычитки
-- Apple Silicon рекомендуется; локальная вычитка использует Metal для ускорения
+- Свободное место: около 1,7 ГБ для модели распознавания; ещё около 0,65–3,58 ГБ для выбранной модели вычитки
+- Для локальной вычитки через MLX нужен Mac с Apple Silicon и Metal
 
 ### OpenAI Build Week: как использовались Codex и GPT-5.6
 
@@ -121,7 +133,9 @@ WhisperDrop развивался итеративно вместе с Codex и G
 
 ### Статус проекта
 
-Доступна первая публичная тестовая сборка. Подписанные и notarized сборки появятся после подключения Apple Developer ID
+Опубликована тестовая версия 0.3.1. Текущий исходный код готовится к версии 0.4.0 с MLX; этот выпуск ещё не опубликован. Подписанные и notarized сборки появятся после подключения Apple Developer ID
+
+[Изменения](CHANGELOG.md) · [Сборка, диагностика и упаковка](Docs/DEVELOPMENT.md) · [Проверка моделей](Docs/MLX-proofreading-benchmark.md)
 
 ---
 
@@ -154,7 +168,7 @@ WhisperDrop is a free native macOS app that turns audio and video into subtitle 
 5. Choose an output format and encoding if the default SRT / UTF-8 combination is not right for your workflow
 6. Click **Save Subtitles**
 
-If you choose subtitle proofreading, the app may download a separate local Qwen3 model (about 430 MB). It is optional and is not needed for transcription
+Subtitle proofreading downloads the selected local MLX model together with its tokenizer (about 0.65–3.58 GB). It is optional and is not needed for transcription
 
 ### Proofread existing subtitles
 
@@ -170,7 +184,7 @@ Download [WhisperDrop 0.3.1 for macOS](https://github.com/fawkek/WhisperDrop/rel
 
 You can also build the project from source:
 
-1. Install Xcode Command Line Tools and use macOS 14 or later
+1. Building requires full Xcode with Swift 6.3 or later (tested with Xcode 26.6); the packaged app targets macOS 14 or later. Select Xcode with `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` and install the Metal Toolchain: `xcodebuild -downloadComponent MetalToolchain`
 2. Clone the repository or download its ZIP archive
 3. In Terminal, open the project folder and run:
 
@@ -178,7 +192,7 @@ You can also build the project from source:
 ./script/build_and_run.sh
 ```
 
-The script builds and opens `WhisperDrop.app`. The packaged app is available at `dist/WhisperDrop.app`
+The script builds and opens `WhisperDrop.app` at `dist/WhisperDrop.app`. On the first build, Xcode compiles MLX's Metal shaders; subsequent builds reuse `.build/mlx-metal` until dependencies or Xcode change. The app and the ZIP created with `--package` include `mlx.metallib`; users of the packaged app do not need Xcode
 
 ### Privacy and storage
 
@@ -188,21 +202,33 @@ WhisperDrop processes audio, video, and subtitle text locally on your Mac. It us
 ~/Library/Application Support/WhisperDrop/Models/
 ```
 
-You can remove them to free disk space; the app will offer to download them again when needed. The compatible tokenizer is already bundled with the app, so users never have to install it separately
+You can remove them to free disk space; the app will offer to download them again when needed. The transcription tokenizer is bundled with the app; each proofreading tokenizer downloads with its model. Users do not need to install tokenizers separately
 
 ### How proofreading works
 
-Proofreading uses the small Qwen3 0.6B model through the prebuilt BaseRT Metal runtime, which ships in this repository as binaries (`Runtime/BaseRT/basert-complete` and `baseRT.metallib`); its source code is not included here. The app starts it only while proofreading, passes it the cue text, and reads the corrected text back
+The current source runs proofreading locally through open-source [MLX Swift](https://github.com/ml-explore/mlx-swift) (MIT) and [MLX Swift LM](https://github.com/ml-explore/mlx-swift-lm) (MIT). The embedded engine runs in the app process and uses Metal on Apple Silicon. It loads the model for proofreading and releases it afterwards; BaseRT is no longer bundled
 
-The model is small and can be wrong, so WhisperDrop keeps only safe edits: punctuation, capitalization, spacing, and replacing a misspelled word with a real word according to the system spell checker. Correctly spelled words are never changed, and cue timing and order are preserved
+The proofreading screen offers Qwen3.5 0.8B, 2B, 4B and Gemma 4 E2B in MLX 4-bit format, with the download size shown next to the model choice. Files live under `Models/Proofreading/<repository-name>/` in Application Support. Downloads check every file’s exact size and the SHA-256 of weights and tokenizers. **Qwen3.5 4B** is the default for both Russian and English; a saved user selection takes precedence
 
-Runtime SHA-256: `basert-complete` — `e7344eeabbc92bd87340018d64e4dfda3f42b1f4370a6c11db050e6b4c2821f8`, `baseRT.metallib` — `e9fd339e047e9a045dad2e0400ab8de11aac41a60a1c0a2fa29cf38c67c014c2`
+
+| Model | Download | Status |
+| --- | ---: | --- |
+| Qwen3.5 0.8B | 0.65 GB | Smallest, experimental |
+| Qwen3.5 2B | 1.74 GB | Smaller, lower accuracy |
+| Qwen3.5 4B | 3.05 GB | Default; best result on the short fixtures |
+| Gemma 4 E2B | 3.58 GB | Experimental |
+
+On the short fixtures, 4B reduced errors from 13 to 8 in Russian and from 13 to 3 in English. Smaller Qwen models sometimes merge adjacent cues, and Gemma sometimes changes their content; the format checks or edit guard reject such responses and preserve the original text. These limited fixtures do not establish accuracy on arbitrary subtitles. [Results and test conditions](Docs/MLX-proofreading-benchmark.md)
+
+Models can be wrong, so WhisperDrop keeps only safe edits: punctuation, capitalization, spacing, and replacing a misspelled word with a real word according to the system spell checker. Correctly spelled words are never changed, and cue timing and order are preserved
+
+Model file hashes are defined in `Sources/WhisperDrop/Services/TextImprovementModelLocator.swift`. MLX support is part of the upcoming 0.4.0 source; the published 0.3.1 release uses the previous engine
 
 ### Requirements
 
 - macOS 14 Sonoma or later
-- Around 1.7 GB of free space for the transcription model; another 430 MB only when subtitle proofreading is used
-- Apple Silicon is recommended; local proofreading uses Metal acceleration
+- Around 1.7 GB of free space for the transcription model; another 0.65–3.58 GB for the selected proofreading model
+- Local MLX proofreading requires an Apple Silicon Mac with Metal
 
 ### OpenAI Build Week: how Codex and GPT-5.6 were used
 
@@ -212,7 +238,9 @@ WhisperDrop was developed iteratively with Codex and GPT-5.6. They helped trace 
 
 ### Project status
 
-The first public test build is available now. Developer ID-signed and notarized builds will follow once an Apple Developer ID is connected
+Test release 0.3.1 is published. The current source is being prepared for 0.4.0 with MLX; that release has not been published yet. Developer ID-signed and notarized builds will follow once an Apple Developer ID is connected
+
+[Changelog](CHANGELOG.md) · [Build, troubleshooting and packaging](Docs/DEVELOPMENT.md) · [Model evaluation](Docs/MLX-proofreading-benchmark.md)
 
 ### Development and packaging
 
@@ -228,7 +256,7 @@ Create a distributable archive:
 ./script/build_and_run.sh --package
 ```
 
-The resulting ZIP is suitable for local testing when ad-hoc signed. Public direct distribution requires a Developer ID certificate and notarization; see [`AGENT.md`](AGENT.md) for the release workflow
+The resulting ZIP is suitable for local testing when ad-hoc signed. For Developer ID signing and notarization, see the [development guide](Docs/DEVELOPMENT.md). The current local package defaults to version 0.4.0, build 8; creating it does not publish a GitHub release
 
 ---
 

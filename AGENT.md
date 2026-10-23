@@ -1,7 +1,7 @@
 # WhisperDrop — agent context
 
 - About shows the purpose, version, build, embedded Git commit, `https://x.com/fawkek_obj`, and `https://github.com/fawkek/WhisperDrop`.
-- Release metadata defaults to version `0.3.1`, build `7`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
+- Release metadata defaults to version `0.4.0`, build `8`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
 - `./script/build_and_run.sh --package` builds Release, signs with `DEVELOPER_ID_APPLICATION` when set (otherwise ad hoc), verifies the signature, and creates `dist/WhisperDrop-<version>-macOS.zip`.
 - When both `DEVELOPER_ID_APPLICATION` and `NOTARY_PROFILE` are set, packaging submits the ZIP with `notarytool`, staples and validates the app, then recreates the final ZIP.
 
@@ -25,7 +25,9 @@ Do not combine these states into one dashboard. Progressive disclosure is a core
 
 ## Repository and build
 
-- Project root: `/Users/igorsevcenko/Documents/git/WhisperDrop`
+Public build instructions: `Docs/DEVELOPMENT.md`. Model results: `Docs/MLX-proofreading-benchmark.md`. Unreleased changes: `CHANGELOG.md`. Source CI uses macOS 26 / Xcode 26.6, runs tests and uploads an app artifact; it does not publish releases.
+
+- Project root: `/Users/igorsevcenko/git/WhisperDrop`
 - Project type: Swift Package Manager executable packaged as a macOS `.app`
 - Minimum deployment: macOS 14
 - Main product/process: `WhisperDrop`
@@ -64,11 +66,12 @@ The current icon (0.3.0) is an "Amethyst" tile: a violet #6D4AFF → purple #B04
 - Recover an oversized weight file only when the SHA-256 of its official-length prefix matches the Hugging Face LFS hash: truncate the verified duplicate tail and remove the stale `.partial`. Never repair an oversized file based on size alone.
 - Cancelling a model download must always return to `needsModel`, even if cached or partially downloaded files exist. A stale download task must never advance the UI to `ready` after cancellation.
 - Transcription is on-device. Media must never be uploaded to a remote service.
-- Optional subtitle proofreading is local-only. It downloads the Apache-2.0 `basecompute/Qwen3-0.6B` Q4 BaseRT model (about 430 MB) to `~/Library/Application Support/WhisperDrop/Models/TextImprovementBaseRT`; it is never required for basic subtitle creation.
-- Proofreading uses the bundled BaseRT runtime (`Runtime/BaseRT` during development; `WhisperDrop.app/Contents/Resources/BaseRTRuntime` in the app). BaseRT is a direct native-Metal runtime for Apple Silicon. Keep `basert-complete` and its matching `baseRT.metallib` together.
-- The `.base` model includes its compatible tokenizer. Do not download, copy, or ask users to install a separate proofreading tokenizer. Treat it as installed only when its expected file size matches. After a successful BaseRT download, remove the obsolete MLX and GGUF proofreading-model folders.
-- BaseRT Q4 model download size is exactly `430,114,816` bytes. Downloads use the same `ResumableFileTransfer` with HTTP `Range`, writing every received block directly to the persistent `.partial` file so an interruption preserves real progress. A CDN response that ignores a range request must preserve existing progress. Never delete a partial download merely because a duplicate tail was received: trim it to the expected length and then validate/load it.
-- Cancelling BaseRT-model download must stay on the proofreading model screen and immediately show the stored `.partial` byte count. Never route cancellation to the finished subtitle screen or show zero bytes when a partial file exists.
+- Default proofreading model: `qwen3.5-4b` for Russian, English and fallback languages, selected from the short fixture comparison in `Docs/MLX-proofreading-benchmark.md`. User selection takes precedence. The smaller models and Gemma remain experimental alternatives.
+- Optional subtitle proofreading is local-only through the MIT-licensed MLX Swift runtime on Apple Silicon. The user chooses an MLX model on the proofreading screen; the catalog, file sizes and large-file SHA-256 hashes live in `TextImprovementModelLocator.swift`. Models and their tokenizers download together into `~/Library/Application Support/WhisperDrop/Models/Proofreading/<repository-name>/` and are never required for transcription.
+- `MLXProofreadingEngine` loads a local model in-process, creates a fresh `ChatSession` per chunk with temperature 0 and `enable_thinking: false`, and unloads after the run. Do not restore the non-redistributable BaseRT binaries.
+- SwiftPM CLI builds cannot compile MLX Metal resources. Full Xcode with Swift 6.3+ (tested with Xcode 26.6) plus the Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`) are required to build. `script/build_mlx_metallib.sh` uses Xcode and caches the library under `.build/mlx-metal`, keyed by dependency manifest/lockfile, helper script, Xcode, SDK and architecture. `build_and_run.sh` copies it to `Contents/MacOS/mlx.metallib` before signing, including for `--package`. End users do not need Xcode.
+- Proofreading downloads use `ResumableFileTransfer` with HTTP `Range`, durable `.partial` files, exact sizes and SHA-256 validation for weights/tokenizers. A CDN response that ignores a range request must preserve existing progress. After a successful download, obsolete `TextImprovementBaseRT`, `TextImprovementMLX` and `TextImprovement` folders are removed.
+- Cancelling a proofreading-model download must stay on the model screen and immediately show the stored `.partial` byte count. Never route cancellation to the finished subtitle screen or show zero bytes when a partial file exists.
 - Completed transcription cues must be written atomically to `~/Library/Application Support/WhisperDrop/Recovery/CurrentSubtitleDraft.json` before proofreading starts. Restore this draft to the finished screen after a crash or relaunch, update it after successful proofreading, and clear it only when the user starts another media file or presses `Другой файл` / `Another file`.
 - Qwen proofreading preserves order, start times, and end times and may change only text spelling, punctuation, capitalization, and spacing. A deterministic post-filter may remove entire cues only when their normalized text matches a known Whisper hallucination such as `Субтитры сделал Дима Торжок` or `Девушки отдыхают`. Do not translate, summarize, or rewrite meaning.
 
@@ -84,10 +87,11 @@ The current icon (0.3.0) is an "Amethyst" tile: a violet #6D4AFF → purple #B04
 - `Services/AudioExtractor.swift`: discovers audio tracks and extracts the selected track to temporary M4A with AVFoundation or FFmpeg fallback.
 - `Services/TranscriptionService.swift`: WhisperKit setup, transcription, download, and progress callbacks.
 - `Services/ModelLocator.swift`: model/tokenizer locations.
-- `Services/TextImprovementModelLocator.swift`: Qwen proofreading model location, size, and download URL.
-- `Services/TextImprovementModelDownloader.swift`: resumable download of the BaseRT Qwen model.
-- `Services/TextImprovementService.swift`: local subtitle proofreading through bundled BaseRT / native Metal.
-- `Runtime/BaseRT`: BaseRT release runtime assets bundled by `script/build_and_run.sh`; both `basert-complete` and the matching `baseRT.metallib` are required in the final app bundle.
+- `Services/TextImprovementModelLocator.swift`: MLX proofreading model catalog, persisted choice, language defaults, file manifests and installation checks.
+- `Services/TextImprovementModelDownloader.swift`: resumable multi-file MLX model download and large-file SHA-256 verification.
+- `Services/TextImprovementService.swift`: local subtitle proofreading, six-cue chunks, JSON parsing and conservative edit filtering.
+- `Services/MLXProofreadingEngine.swift`: in-process MLX inference and swift-transformers tokenizer bridge.
+- `Services/ProofreadingGuard.swift`: deterministic filter for spelling, punctuation, case and spacing; never loosen it.
 - `Support/SRTFormatter.swift`: deterministic UTF-8 SRT rendering and timestamp formatting.
 - `Support/SubtitleExporter.swift`: SRT, WebVTT, ASS, and TXT rendering plus byte encoding/BOM handling.
 - `Support/WhisperTextSanitizer.swift`: removes Whisper control and timestamp tokens from decoded text.
@@ -236,8 +240,8 @@ Treat the following as required release work, not optional polish:
 - Verify downloaded files with expected size and cryptographic checksum before loading.
 - Support resume, atomic installation, migration, corruption recovery, and deletion from settings.
 - Document model and WhisperKit licenses in the app and distribution package.
-- Document Qwen3 and BaseRT licenses in the app and distribution package before enabling proofreading in a public build.
-- Add checksum verification for the Qwen BaseRT model; current implementation checks exact file size only.
+- Document MLX and the selected model licenses in the app and distribution package before release.
+- Keep exact-size checks and SHA-256 verification for MLX model downloads.
 - Keep the `OUTPUT_JSON:` prompt contract. The parser may accept a raw JSON array, fenced `json` block, or common object wrappers like `{"output":[...]}` only when the decoded string count exactly matches the input cue count. Never accept echoed input JSON from the prompt as a successful model response.
 - Never convert UTF-16 offsets into Swift `String.Index` with `offsetBy:`. Keep parser ranges in the same string instance or use `Range(_:in:)`; regression coverage must include Cyrillic, emoji, combined Unicode scalars, and trailing model chatter.
 - After proofreading, compare original and improved cue text and show the changed cue count on the finished screen, e.g. `1243 исправления` / `1243 corrections`. This is user-facing result metadata, not diagnostic logging.
@@ -245,8 +249,8 @@ Treat the following as required release work, not optional polish:
 
 ### Subtitle proofreading stabilization
 
-- Pin the BaseRT runtime release and smoke-test the packaged Metal runtime on Apple Silicon before release.
-- Before release, perform one clean BaseRT-model download from zero, one cancel/resume test, one interrupted-network test, and one long SRT proofreading test in the packaged app.
+- Keep MLX dependencies pinned by `Package.resolved` and smoke-test the packaged `mlx.metallib` on Apple Silicon before release.
+- Before release, perform one clean MLX-model download from zero, one cancel/resume test, one interrupted-network test, and one long SRT proofreading test in the packaged app.
 - Add regression tests for the prompt contract: JSON array only, same cue count, same order, no translation, no meaning rewrite.
 - Add chunking tests for long subtitle files, escaped quotes, emojis, multiline cues, Russian/English mixed text, and malformed model output.
 - Add a visual diff model so the proofreading screen can highlight only actually corrected words, not just the currently processed word.
@@ -296,10 +300,10 @@ Treat the following as required release work, not optional polish:
 - `WhisperDrop --resegment <segments.json> <out.srt>` rebuilds cues from saved Whisper output in a second.
 - `WhisperDrop --snapshots <folder>` renders every screen in light and dark to PNG (AppKit-backed pieces such as menus and the window glass are not drawn).
 - `open -n --env WHISPERDROP_DEMO=<drop|transcribing|finished|proofreading|model|downloading|failed> dist/WhisperDrop.app` opens the real app on one screen with sample data for README screenshots; demo mode never reads or writes the recovery draft.
-- `dist/WhisperDrop.app/Contents/MacOS/WhisperDrop --proofread <in.srt> <out.srt>` runs proofreading with the real Qwen model (the runtime is found only inside the app bundle). Set `WHISPERDROP_DEBUG_PROOFREAD=<file>` to write the last prompt and raw model answer there.
+- `dist/WhisperDrop.app/Contents/MacOS/WhisperDrop --proofread <in.srt> <out.srt> [--model <id>]` runs real MLX proofreading. The model override does not change the saved UI selection. Set `WHISPERDROP_DEBUG_PROOFREAD=<file>` to write the last prompt and raw model answer there.
 - `WHISPERDROP_APPEARANCE=light|dark` forces the app's appearance for screenshots.
 
-## Proofreading rules (0.3.1)
+## Proofreading rules (0.4.0)
 
-- Qwen3 0.6B gets its instructions in `--system` and the input JSON ending with `/no_think`; without both it reasons until the token limit. Chunks are 6 cues; neighbouring cues are not passed as context because the small model then rewrote them.
+- MLX ChatSession receives system instructions separately from the input JSON and `enable_thinking: false`. Chunks are 6 cues; neighbouring cues are not passed as context because small models may rewrite them. Reject malformed JSON and wrong cue counts; keep original text on a failed chunk.
 - `ProofreadingGuard` keeps a correction only if it changes punctuation, case or spacing, or replaces a word the system spell checker marks as misspelled with one it accepts, by a few letters. Never loosen this: viewers who rely on subtitles can't hear a swapped word.

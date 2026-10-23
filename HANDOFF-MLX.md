@@ -1,52 +1,114 @@
-# Handoff: proofreading on MLX (for Codex)
+# Handoff: MLX proofreading
 
-Read this first, then AGENT.md. Branch: `mlx-proofreading` (work in progress, not pushed).
+Read this and `AGENT.md` before changing the project. Integration target: `main`;
+implementation branch: `mlx-proofreading`. Current source version: **0.4.0,
+build 8**. The 0.4.0 release has not been published.
 
-## Goal
+## Goal and implementation
 
-Replace the BaseRT proofreading runtime with Apple's MLX (MIT, can be bundled), and let the user pick the proofreading model from a drop-down on the proofreading screen. The default model follows the system language (Russian vs English); English may use a larger model.
+Replace the old BaseRT proofreading runtime with redistributable MLX Swift and
+let the user select a local proofreading model. BaseRT is removed from the
+current app sources and packaging; do not restore its binaries.
 
-Why: the BaseRT engine license (inside `basert-engine-macos-arm64-0.4.1.tar.gz`, file `LICENSE`) forbids redistribution, and the old bundled BaseRT could not run Qwen3.5 (it produced garbage). The user chose MLX.
+- `MLXProofreadingEngine` loads a local model in-process, uses a fresh ChatSession
+  per chunk with temperature 0 and `enable_thinking: false`, and unloads after
+  the run. A swift-transformers bridge supplies the tokenizer.
+- `ProofreadingModelCatalog` has Qwen3.5 0.8B, 2B, 4B and Gemma 4 E2B in MLX
+  4-bit format. File sizes and weight/tokenizer SHA-256 hashes live in
+  `Services/TextImprovementModelLocator.swift`.
+- Default is **Qwen3.5 4B for Russian and English**, also used for fallback
+  languages. `ProofreadingModelID` in UserDefaults takes precedence when saved.
+  CLI `--model` is an in-memory override. Exact default IDs are tested.
+- The proofreading screen has a model menu, download size, installed/download
+  action and a Back button. Dropped SRT/VTT files use the same flow.
+- Models live in `~/Library/Application Support/WhisperDrop/Models/Proofreading/`.
+  Downloads use persistent `.partial` files, HTTP Range, exact sizes and hashes.
+  Successful installation removes obsolete proofreading-engine model folders.
+- Six-cue chunks must return an equal-length JSON array in the same order. The
+  prompt explicitly forbids merging adjacent cues. Invalid chunks retain their
+  original text.
+- `ProofreadingGuard` permits only punctuation, case, spacing and small
+  misspelled-to-real-word corrections accepted by NSSpellChecker. **Never loosen
+  this guard.** Cue timestamps and order remain unchanged.
 
-## Already done on this branch
+## Metal blocker: resolved
 
-- `Package.swift`: added `mlx-swift-lm` 3.32.3 (`MLXLLM`, `MLXLMCommon`) and `swift-transformers` (`Tokenizers`). `swift build` succeeds.
-- `Services/MLXProofreadingEngine.swift`: actor that loads an MLX model from a local folder (`loadModelContainer(from:using:)`), runs one fresh `ChatSession` per chunk with `temperature: 0` and `additionalContext: ["enable_thinking": false]`, unloads after a run. Contains a swift-transformers → MLXLMCommon tokenizer bridge.
-- `Services/TextImprovementModelLocator.swift`: `ProofreadingModelCatalog` with 4 MLX models (files, sizes, SHA-256 from the Hugging Face API): `qwen3.5-0.8b`, `qwen3.5-2b`, `qwen3.5-4b`, `gemma-4-e2b` (all `mlx-community/*-4bit`). Selected model is stored in UserDefaults key `ProofreadingModelID`; `defaultModelID(forLanguage:)` currently returns `qwen3.5-2b` for both languages — **must be set from test results**. Models live in `~/Library/Application Support/WhisperDrop/Models/Proofreading/<repo-name>/`.
-- `Services/TextImprovementModelDownloader.swift`: per-file resumable download with exact sizes and SHA-256; removes legacy folders (`TextImprovementBaseRT`, `TextImprovementMLX`, `TextImprovement`) after a successful download.
-- `Services/TextImprovementService.swift`: `runModel` now calls `MLXProofreadingEngine` (no child process). Prompt, JSON parsing, 6-cue chunks and `ProofreadingGuard` unchanged.
-- `Services/ProofreadingGuard.swift` (moved out of the deleted `BaseRTProcess.swift`): keeps only punctuation/case/spacing edits and misspelled→real-word fixes via `NSSpellChecker`. **Never loosen this.**
-- `Stores/AppStore.swift` + `Views/ContentView.swift`: "Исправить текст" and dropped subtitle files open the proofreading screen with a model drop-down (`ProofreadingModelMenu`); button is "Исправить" when installed, otherwise "Скачать и исправить · size". "Назад" returns to the subtitles. `proofreadingModelID` mirrors the choice so SwiftUI redraws.
-- `App/Entry.swift`: `--proofread <in.srt> <out.srt> [--model <id>]` (in-memory override, does not touch the saved choice). `App/Snapshots.swift`: demo screen `proofread-model`.
-- `script/build_and_run.sh`: BaseRT copy/sign steps removed. `Runtime/BaseRT` removed with `git rm`.
+`swift build` cannot compile MLX's Metal resources. Full Xcode with Swift 6.3+
+(tested with Xcode 26.6) and its Metal Toolchain are required to build.
 
-## Blocker to fix first: MLX Metal shaders
+`script/build_mlx_metallib.sh` uses Xcode to build the dependency resources and
+caches `default.metallib` under `.build/mlx-metal`, keyed by package manifests,
+helper source, Xcode, SDK and architecture. The main build script copies it to
+`Contents/MacOS/mlx.metallib` **before signing**, including for `--package`.
+Dependency licenses are included in Resources. End users do not need Xcode.
 
-Running the app gives `MLX error: Failed to load the default metallib`. `swift build` cannot compile Metal shaders. MLX looks for `mlx.metallib` next to the executable (see `.build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp`, "colocated mlx.metallib").
+Debug launch/process verification, Release packaging, cache reuse, signature
+verification and proofreading from a ZIP extracted outside the checkout passed.
+A successful 0.8B CLI smoke run verifies the Metal fix but not correction quality:
+its invalid Russian chunks retain their original text.
 
-- Metal Toolchain is now installed (`xcodebuild -downloadComponent MetalToolchain` done).
-- An `xcodebuild` was started: `xcodebuild build -scheme WhisperDrop -configuration Release -destination 'platform=macOS,arch=arm64' -derivedDataPath .build/xcode -skipPackagePluginValidation -skipMacroValidation`, log `/tmp/wd-xcb.log` (ends with `XCB <exit code>`).
-- Then find `default.metallib` (expected in `.build/xcode/Build/Products/Release/mlx-swift_Cmlx.bundle/…`) and in `build_and_run.sh` copy it to `$APP_MACOS/mlx.metallib` before signing. Cache it (rebuild only when `Package.resolved` changes). Make `--package` include it. Document "Xcode + Metal Toolchain required" in README build steps. The GitHub release workflows (`.github/workflows/release-*.yml`) will need the same.
-- Verify: `dist/WhisperDrop.app/Contents/MacOS/WhisperDrop --proofread ~/git/WhisperDrop-testdata/ru-typos.srt /tmp/out.srt --model qwen3.5-0.8b` must produce output without the metallib error.
+## Model comparison: complete on short fixtures
 
-## Then: choose the default models
+Gemma finished downloading, passed size/hash checks and loaded through MLXLLM.
+All four models were scored in the same Release build on M1 Max / 64 GiB.
 
-Test data in `~/git/WhisperDrop-testdata/`:
-- `ru-clean.srt` / `ru-typos.srt`, `en-clean.srt` / `en-typos.srt` (11–12 inserted typos each).
-- `score.py clean.srt typos.srt proofread.srt` → errors before/after.
-- Models: `qwen3.5-0.8b` and `qwen3.5-2b` are already in the app's `Proofreading` folder. `qwen3.5-4b` and `gemma-4-e2b` are downloading via `fetch_mlx.sh` into `mlx-models/` (log `fetch.log`); move each finished folder into `~/Library/Application Support/WhisperDrop/Models/Proofreading/`.
-- For each model and language run `--proofread … --model <id>` (run in background, it can take > 60 s), score it, and read `~/Library/Application Support/WhisperDrop/Logs/WhisperDrop.log` (`rejectedEdits`, failed chunks, `Proofreading took`). `WHISPERDROP_DEBUG_PROOFREAD=/tmp/x.txt` writes the raw model answer.
-- Pick per language the best quality with acceptable speed; set `defaultModelID(forLanguage:)`, adjust picker notes, drop models that fail to load or perform badly. Check that `enable_thinking: false` really stops Qwen3.5 thinking; check Gemma 4 loads in MLXLLM (`Gemma4Text`).
+- Initial differences: 13 per language under the fixture scorer.
+- Remaining RU / EN differences: 0.8B 13 / 9; 2B 13 / 7; 4B 8 / 3; Gemma 10 / 9.
+- 4B returned valid responses in all chunks, in 4.4 s RU / 3.7 s EN. It is the
+  default for both languages. Alternative model notes reflect lower accuracy or
+  experimental status; do not promise broad accuracy from this small sample.
+- Smaller Qwen models merged Russian elements. Gemma sometimes moved/dropped
+  text; the unchanged guard rejected those edits. All output files preserved cue
+  count/order/timestamps. Saved final-chunk answers contained no thinking text.
 
-## Then: finish and release 0.4.0
+Committed fixtures/scorer: `Tests/Fixtures/Proofreading/`.
+Full results: `Docs/MLX-proofreading-benchmark.md`.
+Build/model/packaging guide: `Docs/DEVELOPMENT.md`.
+README is updated in Russian and English; `Models/README.md` documents storage
+and exact download totals; `CHANGELOG.md` records unreleased 0.4.0 changes.
 
-1. `swift test` (update/add tests: catalog file sizes, default by language, downloader with a fake manifest like `ModelDownloaderTests`).
-2. README "Как устроена вычитка / How proofreading works": replace BaseRT text and hashes with MLX + model list + guard. AGENT.md lines ~67–90, 239–249, 304: replace BaseRT notes with MLX.
-3. Ask the user before touching published releases: v0.3.0, v0.3.1 and older zips contain the BaseRT binary — the user may want those assets removed or replaced.
-4. Version `0.4.0`, build `8` in `build_and_run.sh`; `./script/build_and_run.sh --package`; verify the downloaded zip (hash, `codesign --verify`, proofreading works on a clean model folder).
-5. Commits: **no `Co-Authored-By` or `Claude-Session` trailers** (user preference). Merge to `main`, push, `gh release create v0.4.0`.
+## Validation and CI
 
-## Useful developer commands
+`swift test`: 86 XCTest + 3 Swift Testing tests pass. Tests cover catalog sizes,
+exact language defaults, complete partial installation, verified oversized
+partial recovery, cancellation preserving files and installation checks.
+`git diff --check` and shell syntax checks pass; 0.4.0 Release packaging and
+codesign verification pass. Short inference runs use installed models.
 
-- `WhisperDrop --transcribe <media> <out.srt> [--segments <json>]`, `--resegment <json> <out.srt>`, `--snapshots <folder>`.
-- `open -n --env WHISPERDROP_DEMO=<screen> --env WHISPERDROP_APPEARANCE=dark dist/WhisperDrop.app` for screenshots (`proofread-model`, `finished`, `drop`, …).
+`.github/workflows/ci.yml` selects Xcode 26.6 on macOS 26, installs Metal Toolchain,
+runs tests, packages/verifies the app and uploads a test-build artifact. It
+replaces the obsolete version-specific 0.2.x release publishers and does not
+publish or overwrite GitHub releases.
+
+## Remaining before publishing 0.4.0
+
+1. Validate live clean-model download, cancel/resume, interrupted network and a
+   long SRT in the packaged app. Check minimum supported macOS separately.
+2. Package from the final committed checkout so About contains the right commit.
+   Extract the ZIP outside the project, verify its hash/signature and test it.
+3. Decide whether to keep all experimental alternatives in the final release;
+   the present source retains the user's model choices and recommends 4B.
+4. Ask before deleting/replacing existing published assets: older releases still
+   contain the old BaseRT binary. Publishing source changes does not authorize
+   removing historical release assets.
+5. Release 0.4.0 only after the required validation. Build metadata is already
+   0.4.0 / 8. Commits must have **no Co-Authored-By or Claude-Session trailers**.
+
+## Developer commands
+
+```bash
+./script/build_and_run.sh --verify
+./script/build_and_run.sh --package
+swift test
+
+dist/WhisperDrop.app/Contents/MacOS/WhisperDrop \
+  --proofread Tests/Fixtures/Proofreading/ru-typos.srt /tmp/proofread.srt \
+  --model qwen3.5-4b
+```
+
+Other modes: `--transcribe <media> <out.srt> [--segments <json>]`,
+`--resegment <json> <out.srt>`, `--snapshots <folder>`.
+GUI demo: `WHISPERDROP_DEMO=proofread-model`; appearance override:
+`WHISPERDROP_APPEARANCE=light|dark`. Use `open -n --env ... dist/WhisperDrop.app`.
+`WHISPERDROP_DEBUG_PROOFREAD=<path>` writes the last chunk's input/raw response;
+normal logs contain counts/errors, not subtitle text.

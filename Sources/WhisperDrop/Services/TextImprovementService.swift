@@ -87,12 +87,14 @@ actor TextImprovementService {
     You fix typos in Russian or English subtitle lines for deaf and hard-of-hearing viewers. \
     Fix only spelling, punctuation, capitalization and spacing. \
     Never change, add or remove words otherwise. Never translate. \
+    Keep each subtitle as a separate array element, even when a sentence continues in the next subtitle. \
+    Never merge elements or move text between them. \
     Reply with OUTPUT_JSON: and a JSON array of strings, same length and order as the input, nothing else.
     """
 
     private func runModel(texts: [String]) async throws -> [String] {
         let inputJSON = String(decoding: try JSONEncoder().encode(texts), as: UTF8.self)
-        let prompt = "Input JSON:\n\(inputJSON)"
+        let prompt = "Input JSON (\(texts.count) separate subtitles):\n\(inputJSON)\nReturn exactly \(texts.count) strings in a JSON array with square brackets: OUTPUT_JSON: [...]"
         // Room for the corrected copy of the input plus the wrapper.
         let maxTokens = min(2_048, max(256, inputJSON.count / 2 + 96))
         let answer = try await MLXProofreadingEngine.shared.respond(
