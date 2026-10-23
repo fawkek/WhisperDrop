@@ -218,16 +218,7 @@ final class AppStore {
             cues = try SubtitleImporter.load(url)
             exportFormat = SubtitleImporter.format(for: url)
             persistDraft()
-            if TextImprovementModelLocator.isInstalled {
-                shouldImproveAfterModelDownload = false
-                improveSubtitles()
-            } else {
-                shouldImproveAfterModelDownload = true
-                improvementDownloadError = nil
-                improvementDownloadBytes = TextImprovementModelLocator.downloadedBytes
-                improvementDownloadTotalBytes = TextImprovementModelLocator.expectedDownloadBytes
-                phase = .needsImprovementModel
-            }
+            improveSubtitles()
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -323,7 +314,10 @@ final class AppStore {
             phase = .needsModel
         } else if wasSelectingAudioTrack {
             phase = .ready
-        } else if wasNeedsImprovementModel || wasImprovementDownload {
+        } else if wasNeedsImprovementModel {
+            shouldImproveAfterModelDownload = false
+            phase = cues.isEmpty ? .ready : .finished
+        } else if wasImprovementDownload {
             shouldImproveAfterModelDownload = false
             phase = .needsImprovementModel
         } else if wasImproving {
@@ -343,19 +337,50 @@ final class AppStore {
         }
     }
 
+    /// Opens the proofreading screen, where the user picks a model before anything runs.
     func improveSubtitles() {
         guard !cues.isEmpty else { return }
         persistDraft()
         shouldImproveAfterModelDownload = false
-        guard TextImprovementModelLocator.isInstalled else {
-            improvementDownloadError = nil
-            improvementDownloadBytes = TextImprovementModelLocator.downloadedBytes
-            improvementDownloadTotalBytes = TextImprovementModelLocator.expectedDownloadBytes
-            progress = min(1, Double(improvementDownloadBytes) / Double(improvementDownloadTotalBytes))
-            phase = .needsImprovementModel
-            return
-        }
+        improvementDownloadError = nil
+        refreshProofreadingModelState()
+        phase = .needsImprovementModel
+    }
 
+    /// Mirrors the saved choice so SwiftUI redraws when it changes.
+    private(set) var proofreadingModelID = TextImprovementModelLocator.selected.id
+
+    var proofreadingModel: ProofreadingModel {
+        ProofreadingModelCatalog.model(id: proofreadingModelID) ?? TextImprovementModelLocator.selected
+    }
+
+    func selectProofreadingModel(_ model: ProofreadingModel) {
+        guard phase == .needsImprovementModel else { return }
+        TextImprovementModelLocator.selected = model
+        proofreadingModelID = model.id
+        improvementDownloadError = nil
+        refreshProofreadingModelState()
+    }
+
+    /// Runs proofreading with the selected model, downloading it first when needed.
+    func startProofreading() {
+        guard phase == .needsImprovementModel else { return }
+        if TextImprovementModelLocator.isInstalled {
+            runProofreading()
+        } else {
+            shouldImproveAfterModelDownload = true
+            downloadImprovementModel()
+        }
+    }
+
+    private func refreshProofreadingModelState() {
+        improvementDownloadBytes = TextImprovementModelLocator.downloadedBytes
+        improvementDownloadTotalBytes = TextImprovementModelLocator.expectedDownloadBytes
+        progress = min(1, Double(improvementDownloadBytes) / Double(max(1, improvementDownloadTotalBytes)))
+    }
+
+    private func runProofreading() {
+        guard !cues.isEmpty, TextImprovementModelLocator.isInstalled else { return }
         let id = UUID()
         operationID = id
         progress = 0
@@ -428,9 +453,9 @@ final class AppStore {
                 improvementDownloadBytes = improvementDownloadTotalBytes
                 if shouldImproveAfterModelDownload {
                     shouldImproveAfterModelDownload = false
-                    improveSubtitles()
+                    runProofreading()
                 } else {
-                    phase = .finished
+                    phase = .needsImprovementModel
                 }
             } catch is CancellationError {
                 guard operationID == id else { return }

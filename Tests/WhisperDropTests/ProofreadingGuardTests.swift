@@ -60,34 +60,4 @@ final class ProofreadingGuardTests: XCTestCase {
     func testKeepsOriginalForEmptyAnswer() {
         XCTAssertEqual(accept("Привет.", "  "), "Привет.")
     }
-
-    func testRuntimeProcessIsCancellable() async throws {
-        let task = Task {
-            try await BaseRTProcess.run(executable: URL(filePath: "/bin/sleep"), arguments: ["30"])
-        }
-        try await Task.sleep(for: .milliseconds(200))
-        let started = Date()
-        task.cancel()
-        _ = try? await task.value
-        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
-    }
-
-    func testRuntimeKeepsMultibyteTextIntact() async throws {
-        let line = "Да, нет, может быть. Съёмки заняли три дня."
-        let output = try await BaseRTProcess.run(
-            executable: URL(filePath: "/bin/sh"),
-            arguments: ["-c", "for i in $(seq 1 3000); do echo '\(line)'; done"]
-        )
-        let lines = output.split(separator: "\n")
-        XCTAssertEqual(lines.count, 3000)
-        XCTAssertTrue(lines.allSatisfy { $0 == Substring(line) })
-    }
-
-    func testRuntimeOutputLargerThanPipeBuffer() async throws {
-        let output = try await BaseRTProcess.run(
-            executable: URL(filePath: "/bin/sh"),
-            arguments: ["-c", "head -c 300000 /dev/zero | tr '\\\\0' 'a'; echo; head -c 300000 /dev/zero | tr '\\\\0' 'b' >&2"]
-        )
-        XCTAssertGreaterThanOrEqual(output.count, 300_000)
-    }
 }

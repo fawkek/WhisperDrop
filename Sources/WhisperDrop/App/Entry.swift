@@ -49,6 +49,10 @@ enum DeveloperCommands {
         let output = URL(filePath: arguments[2])
 
         if arguments[0] == "--proofread" {
+            if let index = arguments.firstIndex(of: "--model"), index + 1 < arguments.count {
+                guard let model = ProofreadingModelCatalog.model(id: arguments[index + 1]) else { throw UsageError() }
+                TextImprovementModelLocator.override = model
+            }
             let cues = try SubtitleImporter.load(input)
             let started = Date()
             let improved = try await TextImprovementService().improve(cues: cues) { _, _ in }

@@ -27,12 +27,6 @@ cd "$ROOT_DIR"
 swift build -c "$CONFIGURATION"
 BUILD_BINARY="$(swift build -c "$CONFIGURATION" --show-bin-path)/$APP_NAME"
 
-BASE_RT_RUNTIME="$ROOT_DIR/Runtime/BaseRT"
-[[ -x "$BASE_RT_RUNTIME/basert-complete" && -f "$BASE_RT_RUNTIME/baseRT.metallib" ]] || {
-  echo "error: BaseRT runtime is missing from Runtime/BaseRT" >&2
-  exit 1
-}
-
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
@@ -41,10 +35,6 @@ mkdir -p "$APP_RESOURCES/Tokenizer"
 cp "$ROOT_DIR/Models/tokenizer/tokenizer.json" "$APP_RESOURCES/Tokenizer/tokenizer.json"
 cp "$ROOT_DIR/Models/tokenizer/tokenizer_config.json" "$APP_RESOURCES/Tokenizer/tokenizer_config.json"
 cp "$ROOT_DIR/Models/tokenizer/config.json" "$APP_RESOURCES/Tokenizer/config.json"
-mkdir -p "$APP_RESOURCES/BaseRTRuntime"
-cp "$BASE_RT_RUNTIME/basert-complete" "$APP_RESOURCES/BaseRTRuntime/basert-complete"
-cp "$BASE_RT_RUNTIME/baseRT.metallib" "$APP_RESOURCES/BaseRTRuntime/baseRT.metallib"
-chmod +x "$APP_RESOURCES/BaseRTRuntime/basert-complete"
 
 xcrun actool "$ROOT_DIR/Assets/Assets.xcassets" \
   --compile "$APP_RESOURCES" \
@@ -77,10 +67,7 @@ cat >"$INFO_PLIST" <<PLIST
 </dict></plist>
 PLIST
 
-# Keep the development bundle internally consistent after copying the nested
-# BaseRT executable and Metal library. Release packaging replaces this ad-hoc
-# signature with the Developer ID signature below.
-codesign --force --sign - "$APP_RESOURCES/BaseRTRuntime/basert-complete"
+# Release packaging replaces this ad-hoc signature with the Developer ID signature below.
 codesign --force --deep --sign - "$APP_BUNDLE"
 
 open_app() { /usr/bin/open -n "$APP_BUNDLE"; }

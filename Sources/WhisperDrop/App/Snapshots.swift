@@ -48,6 +48,11 @@ enum Snapshots {
             store.phase = .importingModel
             store.progress = 0.4
         }),
+        ("proofread-model", { store in
+            store.selectedFile = sample
+            store.cues = Array(repeating: SubtitleCue(start: 0, end: 1, text: "x"), count: 128)
+            store.phase = .needsImprovementModel
+        }),
         ("failed", { $0.phase = .failed(AppText.pick("Не удалось извлечь аудио из видео.", "Could not extract audio from the video.")) }),
     ]
 

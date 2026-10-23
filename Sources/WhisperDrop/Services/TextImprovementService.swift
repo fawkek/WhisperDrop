@@ -10,8 +10,8 @@ actor TextImprovementService {
     struct RuntimeUnavailableError: LocalizedError {
         var errorDescription: String? {
             AppText.pick(
-                "Модель Qwen не установлена или повреждена.",
-                "The Qwen model is missing or damaged."
+                "Модель для исправления не установлена или повреждена.",
+                "The proofreading model is missing or damaged."
             )
         }
     }
@@ -36,12 +36,15 @@ actor TextImprovementService {
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> [SubtitleCue] {
         guard TextImprovementModelLocator.isInstalled else { throw RuntimeUnavailableError() }
+        let started = Date()
+        // Free the model's memory once this run is over, however it ends.
+        defer { Task { await MLXProofreadingEngine.shared.unload() } }
         var improved: [SubtitleCue] = []
         var rejected = 0
         let chunkSize = 6
         let chunks = cues.chunked(into: chunkSize)
-        Self.logger.info("BaseRT proofreading run started: cues=\(cues.count, privacy: .public), chunks=\(chunks.count, privacy: .public)")
-        AppFileLog.write("BaseRT native Metal proofreading run started: cues=\(cues.count), chunks=\(chunks.count)")
+        Self.logger.info("Proofreading run started: cues=\(cues.count, privacy: .public), chunks=\(chunks.count, privacy: .public)")
+        AppFileLog.write("MLX proofreading run started: model=\(TextImprovementModelLocator.selected.id), cues=\(cues.count), chunks=\(chunks.count)")
         for chunkIndex in chunks.indices {
             try Task.checkCancellation()
             let chunk = chunks[chunkIndex]
@@ -50,13 +53,13 @@ actor TextImprovementService {
 
             var correctedTexts: [String]
             do {
-                AppFileLog.write("BaseRT Metal chunk \(chunkIndex + 1)/\(chunks.count) started")
+                AppFileLog.write("MLX chunk \(chunkIndex + 1)/\(chunks.count) started")
                 correctedTexts = try await runModel(texts: chunk.map(\.text))
-                AppFileLog.write("BaseRT Metal chunk \(chunkIndex + 1) succeeded")
+                AppFileLog.write("MLX chunk \(chunkIndex + 1) succeeded")
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                AppFileLog.write("BaseRT Metal chunk \(chunkIndex + 1) failed, keeping original text: \(error.localizedDescription)")
+                AppFileLog.write("MLX chunk \(chunkIndex + 1) failed, keeping original text: \(error.localizedDescription)")
                 correctedTexts = chunk.map(\.text)
             }
             guard correctedTexts.count == chunk.count else { throw InvalidModelOutputError() }
@@ -73,14 +76,13 @@ actor TextImprovementService {
 
         let cleaned = SubtitleHallucinationFilter.clean(improved)
         let removedCount = improved.count - cleaned.count
-        AppFileLog.write("BaseRT native Metal proofreading run finished: removedHallucinations=\(removedCount), rejectedEdits=\(rejected)")
+        AppFileLog.write("MLX proofreading run finished: removedHallucinations=\(removedCount), rejectedEdits=\(rejected)")
+        AppFileLog.write(String(format: "Proofreading took %.1fs", Date().timeIntervalSince(started)))
         return cleaned
     }
 
-    /// Instructions go in the system message and `/no_think` closes the user message:
-    /// with both, Qwen3 answers right away instead of spending the token budget on
-    /// reasoning. Neighbouring cues are not passed as context: in tests the 0.6B model
-    /// started rewriting them instead of the input.
+    /// Neighbouring cues are not passed as context: in tests a small model started
+    /// rewriting them instead of the input. Thinking mode is switched off in the engine.
     private static let systemPrompt = """
     You fix typos in Russian or English subtitle lines for deaf and hard-of-hearing viewers. \
     Fix only spelling, punctuation, capitalization and spacing. \
@@ -90,24 +92,15 @@ actor TextImprovementService {
 
     private func runModel(texts: [String]) async throws -> [String] {
         let inputJSON = String(decoding: try JSONEncoder().encode(texts), as: UTF8.self)
-        let prompt = "Input JSON:\n\(inputJSON)\n/no_think"
-        // Room for the corrected copy of the input plus the wrapper, never a fixed 512.
+        let prompt = "Input JSON:\n\(inputJSON)"
+        // Room for the corrected copy of the input plus the wrapper.
         let maxTokens = min(2_048, max(256, inputJSON.count / 2 + 96))
-
-        let output = try await BaseRTProcess.run(
-            executable: try baseRTRuntimeURL(),
-            arguments: [
-                TextImprovementModelLocator.modelFile.path,
-                "--system", Self.systemPrompt,
-                "--prompt", prompt,
-                "--chat",
-                "--max-tokens", String(maxTokens),
-                "--temp", "0",
-            ]
+        let answer = try await MLXProofreadingEngine.shared.respond(
+            system: Self.systemPrompt,
+            user: prompt,
+            modelFolder: TextImprovementModelLocator.folder(for: TextImprovementModelLocator.selected),
+            maxTokens: maxTokens
         )
-        // The runtime echoes the prompt first; only what follows is the model's answer,
-        // so the example array in the prompt can never be mistaken for it.
-        let answer = output.range(of: prompt).map { String(output[$0.upperBound...]) } ?? output
         if let debugPath = ProcessInfo.processInfo.environment["WHISPERDROP_DEBUG_PROOFREAD"] {
             try? (prompt + "\n=====\n" + answer).write(toFile: debugPath, atomically: true, encoding: .utf8)
         }
@@ -115,16 +108,6 @@ actor TextImprovementService {
             throw InvalidModelOutputError()
         }
         return decoded
-    }
-
-    private func baseRTRuntimeURL() throws -> URL {
-        guard let executable = Bundle.main.resourceURL?
-            .appending(path: "BaseRTRuntime", directoryHint: .isDirectory)
-            .appending(path: "basert-complete"),
-            FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw RuntimeUnavailableError()
-        }
-        return executable
     }
 
     static func decodeModelOutput(

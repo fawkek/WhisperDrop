@@ -1,68 +1,6 @@
 import AppKit
 import Foundation
 
-/// Runs the proofreading runtime as a child process. Output is drained while the
-/// process runs, so a chatty model can't fill the pipe and hang, and cancelling the
-/// task terminates the process instead of leaving it running in the background.
-enum BaseRTProcess {
-    struct Failure: LocalizedError {
-        let status: Int32
-        let message: String
-        var errorDescription: String? {
-            message.isEmpty ? "BaseRT exited with code \(status)." : message
-        }
-    }
-
-    static func run(executable: URL, arguments: [String]) async throws -> String {
-        let process = Process()
-        process.executableURL = executable
-        process.currentDirectoryURL = executable.deletingLastPathComponent()
-        process.arguments = arguments
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        // One reader per pipe, each reading to EOF: no pipe can fill up and block the
-        // process, and bytes can't be reordered between competing readers.
-        let outputHandle = outputPipe.fileHandleForReading
-        let errorHandle = errorPipe.fileHandleForReading
-        let outputTask = Task.detached { outputHandle.readDataToEndOfFile() }
-        let errorTask = Task.detached { errorHandle.readDataToEndOfFile() }
-
-        do {
-            try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                    process.terminationHandler = { _ in continuation.resume() }
-                    do {
-                        try process.run()
-                    } catch {
-                        process.terminationHandler = nil
-                        continuation.resume(throwing: error)
-                    }
-                }
-            } onCancel: {
-                if process.isRunning { process.terminate() }
-            }
-        } catch {
-            // The process never started: close our ends so the readers finish.
-            try? outputPipe.fileHandleForWriting.close()
-            try? errorPipe.fileHandleForWriting.close()
-            _ = await outputTask.value
-            _ = await errorTask.value
-            throw error
-        }
-
-        let output = String(decoding: await outputTask.value, as: UTF8.self)
-        let errors = String(decoding: await errorTask.value, as: UTF8.self)
-        try Task.checkCancellation()
-        guard process.terminationStatus == 0 else {
-            throw Failure(status: process.terminationStatus, message: errors.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return output
-    }
-}
-
 /// Keeps the small proofreading model honest: a correction is accepted only when it is
 /// the kind of change it was asked for. Viewers who rely on subtitles can't hear a word
 /// the model swapped for another, so anything bigger keeps the original text.

@@ -445,82 +445,88 @@ private struct SaveErrorAlert: ViewModifier {
 private struct ImprovementModelSetupView: View {
     let store: AppStore
 
+    private var isDownloading: Bool { store.phase == .downloadingImprovementModel }
+    private var model: ProofreadingModel { store.proofreadingModel }
+
     var body: some View {
         StateLayout {
-            VStack(spacing: 20) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Theme.accent)
+                    .frame(width: 68, height: 68)
+                    .shadow(color: Theme.purple.opacity(0.35), radius: 14, y: 5)
                 Image(systemName: "text.badge.checkmark")
-                    .font(.system(size: 40, weight: .light))
-                    .foregroundStyle(Theme.purple)
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(.white)
+            }
+            .accessibilityHidden(true)
 
-                VStack(spacing: 6) {
-                    Text(store.phase == .downloadingImprovementModel
-                         ? AppText.pick("Загрузка модели правки", "Downloading proofreading model")
-                         : AppText.pick("Модель для исправления", "Proofreading model"))
-                        .font(.system(size: 22, weight: .semibold))
+            VStack(spacing: 8) {
+                Text(isDownloading
+                     ? AppText.pick("Загрузка модели правки", "Downloading proofreading model")
+                     : AppText.pick("Исправить текст", "Proofread text"))
+                    .font(.system(size: 22, weight: .semibold))
+                Text(TextImprovementModelLocator.description)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 380)
+            }
 
-                    Text(TextImprovementModelLocator.displayName)
-                        .font(.system(size: 13, weight: .medium))
-
-                    Text(TextImprovementModelLocator.description)
-                        .font(.system(size: 12))
+            if isDownloading {
+                VStack(spacing: 10) {
+                    AccentBar(progress: store.progress).frame(width: 300)
+                    HStack {
+                        Text("\(model.displayName) · \(byteCount(store.improvementDownloadBytes)) / \(byteCount(store.improvementDownloadTotalBytes))")
+                        Spacer()
+                        Text("\(Int(store.progress * 100))%")
+                    }
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 300)
+                    .contentTransition(.numericText())
+                }
+                Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+                    .buttonStyle(QuietButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+            } else {
+                VStack(spacing: 8) {
+                    ProofreadingModelMenu(store: store)
+                    Text(model.note)
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 340)
                 }
 
-                if store.phase == .downloadingImprovementModel {
-                    VStack(spacing: 10) {
-                        ProgressView(value: store.progress).frame(width: 280)
-                        HStack {
-                            Text(AppText.pick(
-                                "Загружено \(byteCount(store.improvementDownloadBytes)) из \(byteCount(store.improvementDownloadTotalBytes))",
-                                "Downloaded \(byteCount(store.improvementDownloadBytes)) of \(byteCount(store.improvementDownloadTotalBytes))"
-                            ))
-                            Spacer()
-                            Text("\(Int(store.progress * 100))%")
-                        }
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 280)
-                        .contentTransition(.numericText())
+                if let error = store.improvementDownloadError {
+                    Label {
+                        Text(error).multilineTextAlignment(.center)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
                     }
-                    Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
-                        .buttonStyle(QuietButtonStyle())
-                } else {
-                    Label(byteCount(TextImprovementModelLocator.expectedDownloadBytes), systemImage: "internaldrive")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-
-                    if let error = store.improvementDownloadError {
-                        Label {
-                            Text(error)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.center)
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                        }
-                        .font(.system(size: 11))
-                        .foregroundStyle(.orange)
-                        .frame(maxWidth: 320)
-                    }
-
-                    HStack(spacing: 8) {
-                        Button(AppText.pick("Назад", "Back")) {
-                            store.cancel()
-                        }
-                        Button(
-                            store.improvementDownloadError == nil
-                                ? AppText.pick("Скачать модель", "Download model")
-                                : AppText.pick("Повторить загрузку", "Retry download"),
-                            systemImage: "arrow.down",
-                            action: store.downloadImprovementModel
-                        )
-                        .buttonStyle(AccentButtonStyle())
-                    }
-                    .controlSize(.large)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.orange)
+                    .lineLimit(3)
+                    .frame(maxWidth: 360)
                 }
+
+                HStack(spacing: 8) {
+                    Button(AppText.pick("Назад", "Back"), action: store.cancel)
+                        .buttonStyle(QuietButtonStyle(height: 40, compact: true))
+                        .keyboardShortcut(.cancelAction)
+                    Button(action: store.startProofreading) {
+                        Text(primaryTitle)
+                    }
+                    .buttonStyle(AccentButtonStyle())
+                    .keyboardShortcut(.defaultAction)
+                }
+                .fixedSize()
             }
         }
+    }
+
+    private var primaryTitle: String {
+        if TextImprovementModelLocator.isInstalled(model) { return AppText.pick("Исправить", "Proofread") }
+        return AppText.pick("Скачать и исправить · \(byteCount(model.size))", "Download and proofread · \(byteCount(model.size))")
     }
 
     private func byteCount(_ bytes: Int64) -> String {
@@ -529,6 +535,56 @@ private struct ImprovementModelSetupView: View {
         formatter.allowedUnits = [.useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+}
+
+/// Drop-down with every proofreading model, its size, and whether it is already downloaded.
+private struct ProofreadingModelMenu: View {
+    let store: AppStore
+
+    var body: some View {
+        Menu {
+            ForEach(ProofreadingModelCatalog.models) { model in
+                Button {
+                    store.selectProofreadingModel(model)
+                } label: {
+                    if model == store.proofreadingModel {
+                        Label(title(for: model), systemImage: "checkmark")
+                    } else {
+                        Text(title(for: model))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(store.proofreadingModel.displayName)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(detail(for: store.proofreadingModel))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 38)
+            .background(.primary.opacity(0.07), in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.purple.opacity(0.35), lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(AppText.pick("Модель для исправления", "Proofreading model"))
+    }
+
+    private func title(for model: ProofreadingModel) -> String {
+        "\(model.displayName) — \(detail(for: model))"
+    }
+
+    private func detail(for model: ProofreadingModel) -> String {
+        TextImprovementModelLocator.isInstalled(model)
+            ? AppText.pick("скачана", "downloaded")
+            : ByteCountFormatter.string(fromByteCount: model.size, countStyle: .file)
     }
 }
 
