@@ -35,107 +35,83 @@ actor TextImprovementService {
         cues: [SubtitleCue],
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> [SubtitleCue] {
-        guard TextImprovementModelLocator.isInstalled else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-
         guard TextImprovementModelLocator.isInstalled else { throw RuntimeUnavailableError() }
         var improved: [SubtitleCue] = []
-        let chunks = cues.chunked(into: 12)
+        var rejected = 0
+        let chunkSize = 6
+        let chunks = cues.chunked(into: chunkSize)
         Self.logger.info("BaseRT proofreading run started: cues=\(cues.count, privacy: .public), chunks=\(chunks.count, privacy: .public)")
         AppFileLog.write("BaseRT native Metal proofreading run started: cues=\(cues.count), chunks=\(chunks.count)")
         for chunkIndex in chunks.indices {
             try Task.checkCancellation()
             let chunk = chunks[chunkIndex]
-            let previewWords = chunk.flatMap { $0.text.split(whereSeparator: \.isWhitespace).map(String.init) }
-            let previewLimit = max(1, min(previewWords.count, 24))
-            for wordIndex in 0..<previewLimit {
-                try Task.checkCancellation()
-                let chunkBase = Double(chunkIndex) / Double(max(1, chunks.count))
-                let chunkSpan = 1.0 / Double(max(1, chunks.count))
-                let visibleProgress = chunkBase + chunkSpan * 0.18 * Double(wordIndex + 1) / Double(previewLimit)
-                progress(visibleProgress, previewWords[wordIndex])
-                try await Task.sleep(for: .milliseconds(28))
-            }
+            let firstWord = chunk.first?.text.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+            progress(Double(chunkIndex) / Double(chunks.count), firstWord)
 
-            let correctedTexts: [String]
+            var correctedTexts: [String]
             do {
-                Self.logger.info("BaseRT Metal chunk \(chunkIndex + 1, privacy: .public)/\(chunks.count, privacy: .public) started")
                 AppFileLog.write("BaseRT Metal chunk \(chunkIndex + 1)/\(chunks.count) started")
-                correctedTexts = try runModel(cues: chunk)
-                Self.logger.info("BaseRT Metal chunk \(chunkIndex + 1, privacy: .public) succeeded")
+                correctedTexts = try await runModel(texts: chunk.map(\.text))
                 AppFileLog.write("BaseRT Metal chunk \(chunkIndex + 1) succeeded")
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
-                Self.logger.warning("BaseRT Metal chunk \(chunkIndex + 1, privacy: .public) failed, keeping original text: \(error.localizedDescription, privacy: .public)")
                 AppFileLog.write("BaseRT Metal chunk \(chunkIndex + 1) failed, keeping original text: \(error.localizedDescription)")
                 correctedTexts = chunk.map(\.text)
             }
             guard correctedTexts.count == chunk.count else { throw InvalidModelOutputError() }
-            improved.append(contentsOf: zip(chunk, correctedTexts).map { cue, text in
-                SubtitleCue(
-                    start: cue.start,
-                    end: cue.end,
-                    text: LineBreaker.rewrapIfNeeded(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                )
-            })
+
+            for (cue, candidate) in zip(chunk, correctedTexts) {
+                let accepted = await MainActor.run {
+                    ProofreadingGuard.accept(original: cue.text, corrected: candidate, isRealWord: SpellCheck.isRealWord)
+                }
+                if accepted != candidate.trimmingCharacters(in: .whitespacesAndNewlines) { rejected += 1 }
+                improved.append(SubtitleCue(start: cue.start, end: cue.end, text: LineBreaker.rewrapIfNeeded(accepted)))
+            }
             progress(Double(chunkIndex + 1) / Double(chunks.count), correctedTexts.last ?? "")
         }
 
         let cleaned = SubtitleHallucinationFilter.clean(improved)
         let removedCount = improved.count - cleaned.count
-        Self.logger.info("BaseRT proofreading run finished: removedHallucinations=\(removedCount, privacy: .public)")
-        AppFileLog.write("BaseRT native Metal proofreading run finished: removedHallucinations=\(removedCount)")
+        AppFileLog.write("BaseRT native Metal proofreading run finished: removedHallucinations=\(removedCount), rejectedEdits=\(rejected)")
         return cleaned
     }
 
-    private func runModel(cues: [SubtitleCue]) throws -> [String] {
-        let input = cues.map(\.text)
-        let inputData = try JSONEncoder().encode(input)
-        let inputJSON = String(decoding: inputData, as: UTF8.self)
-        let prompt = """
-        You are proofreading subtitles for deaf and hard-of-hearing viewers.
-        Start your answer with OUTPUT_JSON: followed by a valid JSON array of strings.
-        The array length and order must match the input.
-        Fix only spelling, punctuation, capitalization, and spacing.
-        Do not translate. Do not rewrite meaning. Do not add explanations or reasoning. Do not output <think> tags.
-        Example answer: OUTPUT_JSON:["Corrected first line.","Corrected second line."]
+    /// Instructions go in the system message and `/no_think` closes the user message:
+    /// with both, Qwen3 answers right away instead of spending the token budget on
+    /// reasoning. Neighbouring cues are not passed as context: in tests the 0.6B model
+    /// started rewriting them instead of the input.
+    private static let systemPrompt = """
+    You fix typos in Russian or English subtitle lines for deaf and hard-of-hearing viewers. \
+    Fix only spelling, punctuation, capitalization and spacing. \
+    Never change, add or remove words otherwise. Never translate. \
+    Reply with OUTPUT_JSON: and a JSON array of strings, same length and order as the input, nothing else.
+    """
 
-        Input JSON:
-        \(inputJSON)
-        """
+    private func runModel(texts: [String]) async throws -> [String] {
+        let inputJSON = String(decoding: try JSONEncoder().encode(texts), as: UTF8.self)
+        let prompt = "Input JSON:\n\(inputJSON)\n/no_think"
+        // Room for the corrected copy of the input plus the wrapper, never a fixed 512.
+        let maxTokens = min(2_048, max(256, inputJSON.count / 2 + 96))
 
-        let runtime = try baseRTRuntimeURL()
-        let process = Process()
-        process.executableURL = runtime
-        process.currentDirectoryURL = runtime.deletingLastPathComponent()
-        process.arguments = [
-            TextImprovementModelLocator.modelFile.path,
-            "--prompt", prompt,
-            "--chat",
-            "--max-tokens", "512",
-            "--temp", "0"
-        ]
-        let output = Pipe()
-        let errors = Pipe()
-        process.standardOutput = output
-        process.standardError = errors
-        try process.run()
-        process.waitUntilExit()
-        let outputText = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let errorText = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        guard process.terminationStatus == 0 else {
-            throw NSError(
-                domain: "WhisperDrop.BaseRT",
-                code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: errorText.isEmpty ? "BaseRT exited with code \(process.terminationStatus)." : errorText]
-            )
+        let output = try await BaseRTProcess.run(
+            executable: try baseRTRuntimeURL(),
+            arguments: [
+                TextImprovementModelLocator.modelFile.path,
+                "--system", Self.systemPrompt,
+                "--prompt", prompt,
+                "--chat",
+                "--max-tokens", String(maxTokens),
+                "--temp", "0",
+            ]
+        )
+        // The runtime echoes the prompt first; only what follows is the model's answer,
+        // so the example array in the prompt can never be mistaken for it.
+        let answer = output.range(of: prompt).map { String(output[$0.upperBound...]) } ?? output
+        if let debugPath = ProcessInfo.processInfo.environment["WHISPERDROP_DEBUG_PROOFREAD"] {
+            try? (prompt + "\n=====\n" + answer).write(toFile: debugPath, atomically: true, encoding: .utf8)
         }
-
-        guard let decoded = Self.decodeModelOutput(
-            outputText,
-            expectedCount: cues.count,
-            excluding: input
-        ) else {
+        guard let decoded = Self.decodeModelOutput(answer, expectedCount: texts.count) else {
             throw InvalidModelOutputError()
         }
         return decoded

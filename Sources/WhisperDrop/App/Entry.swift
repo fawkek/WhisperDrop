@@ -4,6 +4,7 @@ import Foundation
 ///
 ///     WhisperDrop --transcribe <media> <out.srt> [--segments <segments.json>]
 ///     WhisperDrop --resegment <segments.json> <out.srt>
+///     WhisperDrop --proofread <in.srt> <out.srt>   (run the binary inside the .app)
 ///
 /// `--segments` saves Whisper's raw output so segmentation rules can be re-checked
 /// with `--resegment` in a second, without running the model again.
@@ -15,24 +16,23 @@ enum Entry {
             MainActor.assumeIsolated { Snapshots.render(to: URL(filePath: arguments[1])) }
             exit(0)
         }
-        guard let mode = arguments.first, mode == "--transcribe" || mode == "--resegment" else {
+        guard let mode = arguments.first, ["--transcribe", "--resegment", "--proofread"].contains(mode) else {
             WhisperDropApp.main()
             return
         }
 
-        let semaphore = DispatchSemaphore(value: 0)
-        var exitCode: Int32 = 0
+        // Keep the main thread free: parts of the pipeline (the spell checker) run on
+        // the main actor, which a blocked main thread would never let in.
         Task.detached {
             do {
                 try await DeveloperCommands.run(arguments)
+                exit(0)
             } catch {
                 FileHandle.standardError.write(Data("error: \(error.localizedDescription)\n".utf8))
-                exitCode = 1
+                exit(1)
             }
-            semaphore.signal()
         }
-        semaphore.wait()
-        exit(exitCode)
+        dispatchMain()
     }
 }
 
@@ -47,6 +47,15 @@ enum DeveloperCommands {
         guard arguments.count >= 3 else { throw UsageError() }
         let input = URL(filePath: arguments[1])
         let output = URL(filePath: arguments[2])
+
+        if arguments[0] == "--proofread" {
+            let cues = try SubtitleImporter.load(input)
+            let started = Date()
+            let improved = try await TextImprovementService().improve(cues: cues) { _, _ in }
+            try Data(SubtitleExporter.render(improved, format: .srt).utf8).write(to: output, options: .atomic)
+            print(String(format: "proofread %d cues in %.1fs", improved.count, Date().timeIntervalSince(started)))
+            return
+        }
 
         let segments: [TranscribedSegment]
         if arguments[0] == "--resegment" {
