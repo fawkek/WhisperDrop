@@ -55,6 +55,8 @@ final class AppStore {
     private var operationID = UUID()
 
     init() {
+        // Developer demo screens never touch the user's saved draft.
+        if Snapshots.applyDemo(to: self) { return }
         restoreDraftIfAvailable()
     }
 

@@ -1,7 +1,7 @@
 # WhisperDrop — agent context
 
 - About shows the purpose, version, build, embedded Git commit, `https://x.com/fawkek_obj`, and `https://github.com/fawkek/WhisperDrop`.
-- Release metadata defaults to version `0.2.3`, build `5`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
+- Release metadata defaults to version `0.3.0`, build `6`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
 - `./script/build_and_run.sh --package` builds Release, signs with `DEVELOPER_ID_APPLICATION` when set (otherwise ad hoc), verifies the signature, and creates `dist/WhisperDrop-<version>-macOS.zip`.
 - When both `DEVELOPER_ID_APPLICATION` and `NOTARY_PROFILE` are set, packaging submits the ZIP with `notarytool`, staples and validates the app, then recreates the final ZIP.
 
@@ -42,7 +42,7 @@ Always use `script/build_and_run.sh` to review the GUI. Do not launch the raw Sw
 
 The build script compiles the icon catalog with `actool`, copies `Assets.car` and `AppIcon.icns` into the bundle, and declares both `CFBundleIconName` and `CFBundleIconFile`. Keep the 1024 px source image; regenerate all catalog sizes from it when the icon changes.
 
-The current icon is a dark navy macOS tile with a large, perfectly symmetrical blue-to-cyan audio waveform made from exactly 11 separate rounded vertical bars. Do not restore the earlier dense-waveform, hearing-aid, or television concepts unless the user explicitly requests another redesign.
+The current icon (0.3.0) is an "Amethyst" tile: a violet #6D4AFF → purple #B04BFF → pink #FF5FA2 diagonal gradient, a soft white highlight from the top-left for a convex look, and five white rounded waveform bars with no underline. It is rendered by `script/make_icon.py` on Apple's macOS grid (824 px tile on a transparent 1024 px canvas) and writes `Assets/AppIcon.png`, the asset catalog sizes, and `Docs/WhisperDrop-icon.png`. Do not restore the earlier navy/cyan, dense-waveform, hearing-aid, or television concepts unless the user explicitly requests another redesign.
 
 ## Model and privacy
 
@@ -151,15 +151,15 @@ Transcription progress must use `WhisperKit.progress.fractionCompleted`. `Transc
 - Light and dark appearance follow the system automatically.
 - Visible app text uses Russian when the primary preferred system language starts with `ru`; otherwise it uses English. Speech recognition language remains automatic and must not be exposed as an interface selector unless explicitly requested later.
 - File drop state, transcription state, and finished state must remain separate.
-- The main window is a fixed 600×600 square and must not be resizable, so the composition and glow remain stable. The ready-state drop target is a compact centered rounded card inspired by Gifski, not a dashed frame around the whole content area. Keep its adaptive blue/cyan surface, localized soft glow, bright thin blue/cyan outline, pill-shaped primary button, visible `⌘O` hint, and dashed active drag feedback. It must remain readable in both system appearances and accept video, audio, SRT, and WebVTT.
+- The main window is a fixed 600×600 square and must not be resizable, so the composition and glow remain stable. The ready-state drop target fills the window (Gifski-style) and is framed by a slowly rotating Amethyst conic glow (`RotatingGlow` in `Views/Theme.swift`), with a faint inner echo of the glow, a pill-shaped gradient primary button with a visible `⌘O` hint, and a brighter glow plus arrow icon while a file is dragged over it. All colors, buttons, rings and bars come from `Views/Theme.swift`; do not reintroduce per-screen blue/cyan styling. It must remain readable in both system appearances and accept video, audio, SRT, and WebVTT.
 - Primary actions keep visible shortcut hints where appropriate.
 - State transitions use short 150–250 ms macOS-style fades/scales.
-- The transcription ring and waveform use one oversized, smooth blue-to-light-blue linear gradient without repeating color bands. Render active animation at 60 FPS and respect Reduce Motion by freezing gradient travel and waveform movement.
+- The transcription ring (`AccentRing`) spreads the Amethyst gradient over the filled arc only, so its start never meets its end, and the waveform (`WaveBars`) uses the same five palette steps. Render active animation at 60 FPS and respect Reduce Motion by freezing gradient travel and waveform movement.
 - Interpolate circular progress changes with a short smooth animation so WhisperKit's chunk-level progress updates never appear as abrupt jumps.
 - The transcription screen has one progress visualization only: the circular ring. Show the numeric percentage below its title and a separate Cancel action; do not add a duplicate linear progress bar or explanatory line-count placeholder.
 - The finished screen shows exact cue count, format, and encoding in one compact row. Format and encoding menus open their choices directly and show a checkmark on the selected item. Never nest a `Picker` inside these `Menu` controls and never draw a second disclosure chevron.
 - The finished screen may show `Исправить субтитры` / `Proofread subtitles` as a secondary action. If the Qwen model is missing, show a concise model-download screen analogous to the Whisper model setup screen. If the model exists, show a dedicated proofreading progress screen with one circular progress indicator and a bottom-up word flow; changed words can be highlighted later when the runtime returns reliable diff data.
-- The proofreading word flow must stay inside its own middle slot between title and Cancel button. It shows exactly three rows; the center row is highlighted with a subtle animated blue/cyan gradient, and the top/bottom rows fade. It must not scroll under the title, progress ring, or controls.
+- The proofreading word flow must stay inside its own middle slot between title and Cancel button. It shows exactly three rows; the center row is highlighted with a subtle animated Amethyst gradient, and the top/bottom rows fade. It must not scroll under the title, progress ring, or controls.
 
 ## Window glass implementation
 
@@ -208,9 +208,9 @@ Treat the following as required release work, not optional polish:
 
 - Run end-to-end tests on short, long, silent, noisy, multilingual, variable-frame-rate, and multi-audio-track media.
 - Compare exported SRT timestamps against playback and verify monotonic, non-overlapping cues.
-- Define cue splitting limits for maximum characters, reading speed, and line count instead of relying only on raw Whisper segments.
+- Done in 0.3.0: cues are re-cut from word timestamps (`CueSegmenter`, `LineBreaker`, `SubtitleLayout`) and timing is normalized (`CueTimingNormalizer`). Tune rules against real files with `WhisperDrop --transcribe <media> <out.srt> --segments <json>` and re-check quickly with `--resegment <json> <out.srt>`.
 - Add deterministic subtitle post-processing before/alongside Qwen: max line length, max two visual lines per cue, reading-speed limits, pause-aware splitting from word timestamps, and dialogue line breaks where safe.
-- Detect and suppress repeated hallucinated phrases during silence or credits. The deterministic proofreading post-filter already removes normalized variants of `Субтитры сделал Дима Торжок` and `Девушки отдыхают`; expand it only with regression examples rather than broad semantic guesses.
+- Done in 0.3.0: `SubtitleHallucinationFilter.clean(segments:)` runs right after transcription using Whisper's no-speech, log-probability and compression metrics, credit phrases, and repeat-loop detection. Expand phrase lists only with regression examples rather than broad semantic guesses.
 - Preserve exact final cue count separately from the live draft estimate.
 - Add regression fixtures and tests for Russian, English, mixed speech, punctuation, Unicode, and hour-long timestamps.
 
@@ -289,3 +289,10 @@ Treat the following as required release work, not optional polish:
 - Add automated CI for clean release builds, tests, signing checks, and artifact validation.
 - Maintain a release checklist that includes a clean-machine install and first-run model download.
 - Do not call a build stable until a notarized/App Store-style artifact has completed the same end-to-end transcription tests as development builds.
+
+## Developer tools (0.3.0)
+
+- `WhisperDrop --transcribe <media> <out.srt> [--segments <segments.json>]` runs the real pipeline headlessly (run `.build/debug/WhisperDrop` from the repo root, or the binary inside `dist/WhisperDrop.app`).
+- `WhisperDrop --resegment <segments.json> <out.srt>` rebuilds cues from saved Whisper output in a second.
+- `WhisperDrop --snapshots <folder>` renders every screen in light and dark to PNG (AppKit-backed pieces such as menus and the window glass are not drawn).
+- `open -n --env WHISPERDROP_DEMO=<drop|transcribing|finished|proofreading|model|downloading|failed> dist/WhisperDrop.app` opens the real app on one screen with sample data for README screenshots; demo mode never reads or writes the recovery draft.

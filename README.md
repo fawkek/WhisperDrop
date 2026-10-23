@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/fawkek/WhisperDrop/releases/download/v0.2.3/WhisperDrop-0.2.3-macOS.zip"><b>↓ Скачать тестовую сборку для macOS</b></a>
+  <a href="https://github.com/fawkek/WhisperDrop/releases/download/v0.3.0/WhisperDrop-0.3.0-macOS.zip"><b>↓ Скачать тестовую сборку для macOS</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/fawkek/WhisperDrop/releases/tag/v0.2.3">Все релизы</a>
+  <a href="https://github.com/fawkek/WhisperDrop/releases/tag/v0.3.0">Все релизы</a>
 </p>
 
 ---
@@ -35,12 +35,15 @@ WhisperDrop — бесплатное нативное приложение дл�
 - Автоматически определяет язык речи
 - Создаёт `.srt`, `.vtt`, `.ass` и `.txt`
 - Позволяет выбрать кодировку; по умолчанию — UTF-8 и SRT
-- По желанию исправляет орфографию, пунктуацию, регистр и лишние пробелы в уже готовых субтитрах, а также удаляет известные ложные реплики Whisper в тишине. Таймкоды и порядок остальных реплик сохраняются
+- Нарезает текст на удобные для чтения реплики: не больше двух строк по 42 символа, до 7 секунд на экране, новая реплика после паузы и в конце предложения, переносы по смыслу, а не посреди фразы
+- Выравнивает тайминги: реплики не перекрываются и не мигают, остаются на экране достаточно, чтобы успеть прочитать
+- Убирает текст, который Whisper выдумывает в тишине и на музыке: титры вроде «Субтитры сделал…», зацикленные повторы, фразы без речи
+- По желанию исправляет орфографию, пунктуацию, регистр и лишние пробелы в уже готовых субтитрах. Таймкоды и порядок реплик сохраняются
 - Подстраивается под светлую и тёмную тему macOS и использует русский или английский интерфейс в зависимости от языка системы
 
 ### Как это работает
 
-1. При первом запуске приложение предложит скачать модель распознавания **OpenAI Whisper Large v3**. Это наиболее точная доступная модель; она занимает примерно 1,6 ГБ и хранится на Mac
+1. При первом запуске приложение предложит скачать модель распознавания **OpenAI Whisper Large v3**. Это наиболее точная доступная модель; она занимает примерно 1,6 ГБ и хранится на Mac. Если модель уже есть на диске или на другом Mac, выберите «У меня уже есть модель…»: приложение проверит файлы и скопирует их без загрузки
 2. Перетащите видео или аудио в окно WhisperDrop
 3. Если в файле несколько аудиодорожек, выберите язык, который нужно распознать
 4. Дождитесь завершения распознавания. На экране будет круговой индикатор прогресса
@@ -70,7 +73,7 @@ WhisperDrop — бесплатное нативное приложение дл�
 
 #### Скачать готовое приложение
 
-Скачайте [WhisperDrop 0.2.3 для macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.2.3/WhisperDrop-0.2.3-macOS.zip), распакуйте ZIP и перенесите `WhisperDrop.app` в папку «Программы». Это тестовая сборка без Apple Developer ID и notarization, поэтому macOS может показать предупреждение при первом открытии. Модель распознавания не входит в архив: приложение предложит скачать её при первом запуске
+Скачайте [WhisperDrop 0.3.0 для macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.3.0/WhisperDrop-0.3.0-macOS.zip), распакуйте ZIP и перенесите `WhisperDrop.app` в папку «Программы». Это тестовая сборка без Apple Developer ID и notarization, поэтому macOS может показать предупреждение при первом открытии. Модель распознавания не входит в архив: приложение предложит скачать её при первом запуске
 
 #### Собрать из исходного кода
 
@@ -128,12 +131,15 @@ WhisperDrop is a free native macOS app that turns audio and video into subtitle 
 - Automatically detects the spoken language
 - Exports `.srt`, `.vtt`, `.ass`, and `.txt`
 - Lets you choose the text encoding; UTF-8 and SRT are the defaults
-- Optionally proofreads spelling, punctuation, capitalization, and spacing and removes known Whisper hallucinations from silence while preserving the timing and order of the remaining cues
+- Cuts text into readable cues: at most two lines of 42 characters, up to 7 seconds on screen, a new cue after pauses and sentence ends, line breaks that keep phrases together
+- Cleans up timing: no overlapping or flickering cues, and enough time on screen to read each one
+- Removes text Whisper invents over silence and music: credits like "Subtitles by…", decoding loops, and phrases with no speech behind them
+- Optionally proofreads spelling, punctuation, capitalization, and spacing while preserving cue timing and order
 - Follows the macOS light/dark appearance and uses Russian or English according to the system language
 
 ### How it works
 
-1. On first launch, WhisperDrop asks to download **OpenAI Whisper Large v3**. It is the most accurate available model, takes about 1.6 GB, and stays on your Mac
+1. On first launch, WhisperDrop asks to download **OpenAI Whisper Large v3**. It is the most accurate available model, takes about 1.6 GB, and stays on your Mac. If you already have the model, choose "I already have the model…": the app verifies the files and copies them without downloading
 2. Drop a video or audio file onto the WhisperDrop window
 3. If the file contains multiple audio tracks, choose the language you want to transcribe
 4. Wait for transcription to finish; progress is shown with a circular indicator
@@ -150,7 +156,7 @@ Drop an `.srt` or `.vtt` file onto the first WhisperDrop screen instead of a vid
 
 #### Download the app
 
-Download [WhisperDrop 0.2.3 for macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.2.3/WhisperDrop-0.2.3-macOS.zip), unzip it, and move `WhisperDrop.app` to Applications. This is a test build without a Developer ID signature or notarization, so macOS may show a warning the first time it is opened. The transcription model is not included; the app offers to download it on first launch
+Download [WhisperDrop 0.3.0 for macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.3.0/WhisperDrop-0.3.0-macOS.zip), unzip it, and move `WhisperDrop.app` to Applications. This is a test build without a Developer ID signature or notarization, so macOS may show a warning the first time it is opened. The transcription model is not included; the app offers to download it on first launch
 
 #### Build from source
 

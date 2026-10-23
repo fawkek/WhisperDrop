@@ -523,22 +523,16 @@ private struct ImprovingSubtitlesView: View {
     var body: some View {
         StateLayout {
             VStack(spacing: 18) {
-                ZStack {
-                    Circle().stroke(.quaternary, lineWidth: 7)
-                    Circle()
-                        .trim(from: 0, to: max(0.02, min(1, store.progress)))
-                        .stroke(
-                            Theme.accent,
-                            style: StrokeStyle(lineWidth: 7, lineCap: .round)
-                        )
-                        .rotationEffect(.degrees(-90))
+                AccentRing(progress: store.progress, lineWidth: 8) {
                     Text("\(Int(store.progress * 100))%")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(.system(size: 26, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
                 }
-                .frame(width: 86, height: 86)
+                .frame(width: 140, height: 140)
 
                 VStack(spacing: 6) {
-                    Text(AppText.pick("Исправление субтитров…", "Proofreading subtitles…"))
+                    Text(AppText.pick("Исправляем текст", "Proofreading text"))
                         .font(.system(size: 22, weight: .semibold))
                     Text(TextImprovementModelLocator.displayName)
                         .font(.system(size: 12))
