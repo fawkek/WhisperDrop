@@ -58,6 +58,32 @@ final class LineBreakerTests: XCTestCase {
         XCTAssertEqual(lines.first, "Когда мы вернулись домой,")
     }
 
+    func testKeepsPrepositionalPhraseTogether() throws {
+        let words = "как мы снимали короткий фильм о старом маяке на берегу Финского залива.".split(separator: " ").map(String.init)
+        let lines = try XCTUnwrap(LineBreaker.lines(for: words))
+        XCTAssertFalse(lines[0].hasSuffix("о старом"), lines.joined(separator: " | "))
+        XCTAssertFalse(lines[0].hasSuffix("на берегу"), lines.joined(separator: " | "))
+    }
+
+    func testDoesNotEndLineWithRelativePronoun() throws {
+        let words = "even for people who can hear perfectly well.".split(separator: " ").map(String.init)
+        let lines = try XCTUnwrap(LineBreaker.lines(for: words))
+        XCTAssertEqual(lines, ["even for people", "who can hear perfectly well."])
+    }
+
+    func testKeepsCompletePrepositionalPhraseOnTopLine() throws {
+        let words = "and leave it on screen long enough to read.".split(separator: " ").map(String.init)
+        XCTAssertEqual(try XCTUnwrap(LineBreaker.lines(for: words)), ["and leave it on screen", "long enough to read."])
+    }
+
+    func testPrefersCommaBeforeConjunction() throws {
+        let words = "Он сказал, приезжайте в субботу, но только рано утром.".split(separator: " ").map(String.init)
+        XCTAssertEqual(
+            try XCTUnwrap(LineBreaker.lines(for: words)),
+            ["Он сказал, приезжайте в субботу,", "но только рано утром."]
+        )
+    }
+
     func testRejectsTextThatCannotFitTwoLines() {
         let words = Array(repeating: "слово", count: 30)
         XCTAssertNil(LineBreaker.lines(for: words))

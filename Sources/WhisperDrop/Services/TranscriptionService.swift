@@ -18,6 +18,14 @@ actor TranscriptionService {
         file: URL,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> [SubtitleCue] {
+        Self.cues(from: try await transcribeSegments(file: file, progress: progress))
+    }
+
+    /// Raw Whisper segments with word timings and quality metrics.
+    func transcribeSegments(
+        file: URL,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> [TranscribedSegment] {
         let engine = try await engine()
         let options = DecodingOptions(
             verbose: false,
@@ -42,7 +50,7 @@ actor TranscriptionService {
         var discovered: [TranscriptionSegment] = []
         for result in results { discovered.append(contentsOf: result.segments) }
         progress(1)
-        return Self.cues(from: discovered.map(Self.segment))
+        return discovered.map(Self.segment)
     }
 
     /// Whisper segments → cleaned, readable, well-timed subtitle cues.

@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-@main
+
 struct WhisperDropApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store = AppStore()

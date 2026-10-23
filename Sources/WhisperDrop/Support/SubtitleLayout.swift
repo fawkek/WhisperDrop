@@ -30,25 +30,93 @@ struct SubtitleLayout: Equatable, Sendable {
 /// Words that should not end a line or a cue in Russian and English: prepositions,
 /// conjunctions and particles that belong to the following word.
 enum WeakWords {
-    private static let words: Set<String> = [
-        // Russian
+    /// Prepositions: they open a phrase that should stay together ("о старом маяке").
+    private static let prepositions: Set<String> = [
         "в", "во", "на", "с", "со", "к", "ко", "о", "об", "обо", "от", "ото", "до", "по",
         "за", "из", "изо", "у", "без", "безо", "для", "над", "под", "при", "про", "через",
-        "и", "а", "но", "или", "либо", "что", "чтобы", "как", "если", "когда", "не", "ни",
-        // English
-        "a", "an", "the", "to", "of", "in", "on", "at", "for", "and", "but", "or", "with",
-        "from", "by", "as", "if", "that", "not", "my", "your", "our", "their",
+        "a", "an", "the", "to", "of", "in", "on", "at", "for", "with", "from", "by",
     ]
 
+    /// Conjunctions, relative words and particles that start the next clause.
+    private static let clauseStarters: Set<String> = [
+        "и", "а", "но", "или", "либо", "что", "чтобы", "как", "если", "когда", "не", "ни",
+        "который", "которая", "которое", "которые", "которого", "которой", "где", "куда",
+        "потому", "чем",
+        "and", "but", "or", "as", "if", "that", "not", "my", "your", "our", "their",
+        "who", "whom", "whose", "which", "where", "when", "while", "because",
+    ]
+
+    /// A word that must not end a line or cue.
     static func contains(_ word: String) -> Bool {
+        guard let bare = bareWord(word) else { return false }
+        return prepositions.contains(bare) || clauseStarters.contains(bare)
+    }
+
+    /// A word that should start a line: breaking right before it reads naturally.
+    static func startsPhrase(_ word: String) -> Bool {
+        guard let bare = bareWord(word, allowTrailingPunctuation: true) else { return false }
+        return prepositions.contains(bare) || clauseStarters.contains(bare)
+    }
+
+    static func isPreposition(_ word: String) -> Bool {
+        guard let bare = bareWord(word) else { return false }
+        return prepositions.contains(bare)
+    }
+
+    private static func bareWord(_ word: String, allowTrailingPunctuation: Bool = false) -> String? {
         let bare = word
             .lowercased()
             .trimmingCharacters(in: .punctuationCharacters.union(.symbols).union(.whitespaces))
-        guard !bare.isEmpty else { return false }
+        guard !bare.isEmpty else { return nil }
         // A word followed by punctuation ("и," / "но —") already closes a phrase.
-        if let last = word.trimmingCharacters(in: .whitespaces).last,
-           last.isPunctuation || last == "—" || last == "–" { return false }
-        return words.contains(bare)
+        if !allowTrailingPunctuation,
+           let last = word.trimmingCharacters(in: .whitespaces).last,
+           last.isPunctuation || last == "—" || last == "–" { return nil }
+        return bare
+    }
+}
+
+/// Scores a break between `words[split - 1]` and `words[split]`: higher is better.
+enum BreakQuality {
+    /// `withinCue` is true when choosing a line break inside one cue.
+    static func score(_ words: [String], split: Int, withinCue: Bool = true) -> Double {
+        guard split > 0, split <= words.count else { return 0 }
+        let last = words[split - 1]
+        var score = Double(Punctuation.strength(after: last)) * 8
+        if WeakWords.contains(last) { score -= 25 }
+        let nextStartsPhrase = split < words.count && WeakWords.startsPhrase(words[split])
+        // "…в субботу, | но только…" — a comma before a conjunction is the ideal line break.
+        if withinCue, Punctuation.strength(after: last) > 0, nextStartsPhrase { score += 4 }
+        // Don't cut between a preposition's adjective and its noun: "о старом | маяке",
+        // "в этих | краях". When the next word opens a new phrase, the phrase is complete.
+        if Punctuation.strength(after: last) == 0, split >= 2, !nextStartsPhrase,
+           WeakWords.isPreposition(words[split - 2]), RussianForms.looksLikeModifier(last) {
+            score -= 14
+        }
+        if split < words.count, Punctuation.strength(after: last) == 0,
+           WeakWords.startsPhrase(words[split]) {
+            score += 10
+        }
+        return score
+    }
+}
+
+enum RussianForms {
+    private static let modifierEndings = [
+        "ого", "его", "ому", "ему", "ыми", "ими",
+        "ый", "ий", "ой", "ая", "яя", "ое", "ее", "ые", "ие", "ую", "юю",
+        "ом", "ем", "ых", "их", "ым", "им",
+    ]
+
+    /// Adjectives, participles and pronouns in Russian usually end like this; a noun
+    /// after them belongs to the same phrase. Heuristic only — Latin words never match.
+    static func looksLikeModifier(_ word: String) -> Bool {
+        let bare = word.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+        guard bare.count >= 3,
+              bare.unicodeScalars.allSatisfy({ (0x0400...0x04FF).contains($0.value) || $0 == "-" }) else {
+            return false
+        }
+        return modifierEndings.contains { bare.hasSuffix($0) }
     }
 }
 
@@ -82,8 +150,7 @@ enum LineBreaker {
             var score = -Double(abs(top.count - bottom.count))
             // A slightly shorter top line ("pyramid") reads more naturally.
             if top.count <= bottom.count { score += 2 }
-            score += Double(Punctuation.strength(after: words[split - 1])) * 6
-            if WeakWords.contains(words[split - 1]) { score -= 25 }
+            score += BreakQuality.score(words, split: split)
             if best == nil || score > best!.score { best = (score, [top, bottom]) }
         }
         return best?.lines

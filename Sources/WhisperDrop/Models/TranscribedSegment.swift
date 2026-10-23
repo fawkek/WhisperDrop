@@ -2,7 +2,7 @@ import Foundation
 
 /// A recognized word with its own timing. Kept independent from WhisperKit so the
 /// subtitle pipeline can be unit-tested without a model.
-struct TranscribedWord: Equatable, Sendable {
+struct TranscribedWord: Codable, Equatable, Sendable {
     var text: String
     var start: TimeInterval
     var end: TimeInterval
@@ -12,7 +12,7 @@ struct TranscribedWord: Equatable, Sendable {
 }
 
 /// A Whisper segment plus the quality metrics Whisper reports for it.
-struct TranscribedSegment: Equatable, Sendable {
+struct TranscribedSegment: Codable, Equatable, Sendable {
     var start: TimeInterval
     var end: TimeInterval
     var text: String

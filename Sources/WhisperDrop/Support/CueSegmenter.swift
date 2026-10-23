@@ -71,10 +71,11 @@ enum CueSegmenter {
             let gapAfter = (split < current.count ? current[split].start : next.start) - lastWord.end
             let headChars = characterCount(head)
 
-            var score = Double(Punctuation.strength(after: lastWord.text)) * 10
+            let allWords = (current + [next]).map(\.text)
+            var score = Double(Punctuation.strength(after: lastWord.text)) * 4
+            score += BreakQuality.score(allWords, split: split, withinCue: false) * 1.2
             score += min(max(gapAfter, 0), 1) * 8
             if lastWord.endsSegment { score += 4 }
-            if WeakWords.contains(lastWord.text) { score -= 30 }
             score += Double(headChars) / Double(layout.maxCharsPerCue) * 6
             if headChars < 12 { score -= 15 }
             if score > best.score { best = (score, split) }
