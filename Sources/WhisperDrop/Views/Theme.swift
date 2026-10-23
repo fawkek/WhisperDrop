@@ -84,12 +84,16 @@ struct AccentButtonStyle: ButtonStyle {
 
 /// Quiet capsule button for secondary actions.
 struct QuietButtonStyle: ButtonStyle {
+    var height: CGFloat = 36
+    /// Smaller text and padding, for secondary buttons sitting next to the main one.
+    var compact = false
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: compact ? 13 : 14, weight: .medium))
             .foregroundStyle(.primary.opacity(0.85))
-            .padding(.horizontal, 16)
-            .frame(height: 36)
+            .padding(.horizontal, compact ? 14 : 16)
+            .frame(height: height)
             .background(.primary.opacity(configuration.isPressed ? 0.12 : 0.07), in: Capsule())
             .contentShape(Capsule())
     }

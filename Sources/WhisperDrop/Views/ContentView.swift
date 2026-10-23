@@ -404,20 +404,22 @@ private struct TranscriptionFinishedView: View {
                 }
             }
 
-            Button(action: store.save) {
-                HStack(spacing: 10) {
-                    Text(AppText.pick("Сохранить субтитры", "Save subtitles"))
-                    Text("⌘S").font(.system(size: 12, weight: .medium)).opacity(0.8)
-                }
-            }
-            .buttonStyle(AccentButtonStyle())
-            .keyboardShortcut("s", modifiers: .command)
-
+            // One row, like a macOS dialog: secondary actions first, the main one last.
             HStack(spacing: 8) {
-                Button(AppText.pick("Исправить текст", "Proofread text"), action: store.improveSubtitles)
+                Button(AppText.pick("Исправить текст", "Proofread"), action: store.improveSubtitles)
+                    .buttonStyle(QuietButtonStyle(height: 40, compact: true))
                 Button(AppText.pick("Другой файл", "Another file"), action: store.reset)
+                    .buttonStyle(QuietButtonStyle(height: 40, compact: true))
+                Button(action: store.save) {
+                    HStack(spacing: 8) {
+                        Text(AppText.pick("Сохранить", "Save"))
+                        Text("⌘S").font(.system(size: 12, weight: .medium)).opacity(0.8)
+                    }
+                }
+                .buttonStyle(AccentButtonStyle())
+                .keyboardShortcut("s", modifiers: .command)
             }
-            .buttonStyle(QuietButtonStyle())
+            .fixedSize()
         }
     }
 
