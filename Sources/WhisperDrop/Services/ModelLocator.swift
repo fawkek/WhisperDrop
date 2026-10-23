@@ -48,8 +48,7 @@ enum ModelLocator {
     static var isInstalled: Bool {
         ModelDownloader.files.allSatisfy { file in
             let url = modelFolder.appending(path: file.path)
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            return values?.isRegularFile == true && Int64(values?.fileSize ?? 0) == file.size
+            return ModelDownloader.fileSize(url) == file.size
         } && FileManager.default.fileExists(atPath: tokenizerFolder.appending(path: "tokenizer.json").path)
     }
 

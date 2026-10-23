@@ -228,6 +228,9 @@ final class AppStore {
     }
 
     func downloadModel() {
+        // A second click must not start a second writer on the same file.
+        guard phase != .downloading else { return }
+        workTask?.cancel()
         let id = UUID()
         operationID = id
         modelDownloadError = nil
@@ -353,6 +356,8 @@ final class AppStore {
     }
 
     func downloadImprovementModel() {
+        guard phase != .downloadingImprovementModel else { return }
+        workTask?.cancel()
         let id = UUID()
         operationID = id
         improvementDownloadError = nil

@@ -67,26 +67,39 @@ enum ModelDownloader {
             let bytesBeforeFile = completedBytes - resumedBytes
             let remoteURL = try remoteURL(for: file.path)
             var retry = 0
-            while fileSize(partial) < file.size {
-                try Task.checkCancellation()
-                do {
-                    let transfer = ResumableFileTransfer()
-                    try await transfer.download(
-                        from: remoteURL,
-                        to: partial,
-                        expectedBytes: file.size
-                    ) { received in
-                        progress(bytesBeforeFile + received, totalBytes)
+            var hashFailures = 0
+            while true {
+                while fileSize(partial) < file.size {
+                    try Task.checkCancellation()
+                    do {
+                        let transfer = ResumableFileTransfer()
+                        try await transfer.download(
+                            from: remoteURL,
+                            to: partial,
+                            expectedBytes: file.size
+                        ) { received in
+                            progress(bytesBeforeFile + received, totalBytes)
+                        }
+                    } catch {
+                        if Task.isCancelled { throw CancellationError() }
+                        retry += 1
+                        guard retry <= 5 else { throw error }
+                        let delay = min(16, 1 << (retry - 1))
+                        try await Task.sleep(for: .seconds(delay))
                     }
-                } catch {
-                    if Task.isCancelled { throw CancellationError() }
-                    retry += 1
-                    guard retry <= 5 else { throw error }
-                    let delay = min(16, 1 << (retry - 1))
-                    try await Task.sleep(for: .seconds(delay))
                 }
+                try Task.checkCancellation()
+                // Extra bytes past the end never belong to the file.
+                if fileSize(partial) > file.size { try truncate(partial, to: file.size) }
+                guard let expectedHash = file.sha256 else { break }
+                if try sha256Prefix(of: partial, byteCount: file.size) == expectedHash { break }
+                // Corrupted download: start this file over, once.
+                AppFileLog.write("Model file failed SHA-256 check, downloading again: \(file.path)")
+                try FileManager.default.removeItem(at: partial)
+                hashFailures += 1
+                guard hashFailures <= 1 else { throw ModelIntegrityError(path: file.path) }
+                progress(bytesBeforeFile, totalBytes)
             }
-            try Task.checkCancellation()
             if FileManager.default.fileExists(atPath: destination.path) {
                 try FileManager.default.removeItem(at: destination)
             }
@@ -115,23 +128,58 @@ enum ModelDownloader {
         }
     }
 
-    private static func repairValidOversizedFiles() throws {
-        for file in files {
+    /// Recovers files that were downloaded completely but had extra bytes appended
+    /// afterwards: when the first `size` bytes match the expected SHA-256, the tail is cut
+    /// off instead of downloading the whole file again. Checks finished files and
+    /// `.partial` files alike.
+    static func repairValidOversizedFiles(
+        in folder: URL = ModelLocator.modelFolder,
+        manifest: [ModelFile] = files
+    ) throws {
+        for file in manifest {
             guard let expectedHash = file.sha256 else { continue }
-            let destination = ModelLocator.modelFolder.appending(path: file.path)
-            guard fileSize(destination) > file.size,
-                  try sha256Prefix(of: destination, byteCount: file.size) == expectedHash else { continue }
-            let handle = try FileHandle(forWritingTo: destination)
-            try handle.truncate(atOffset: UInt64(file.size))
-            try handle.close()
-            let stalePartial = destination.appendingPathExtension("partial")
-            if FileManager.default.fileExists(atPath: stalePartial.path) {
-                try FileManager.default.removeItem(at: stalePartial)
+            let destination = folder.appending(path: file.path)
+            let partial = destination.appendingPathExtension("partial")
+
+            if fileSize(destination) > file.size,
+               try sha256Prefix(of: destination, byteCount: file.size) == expectedHash {
+                try truncate(destination, to: file.size)
+                AppFileLog.write("Repaired oversized model file: \(file.path)")
             }
+            if fileSize(destination) == file.size {
+                if FileManager.default.fileExists(atPath: partial.path) {
+                    try FileManager.default.removeItem(at: partial)
+                }
+                continue
+            }
+            guard fileSize(partial) >= file.size,
+                  try sha256Prefix(of: partial, byteCount: file.size) == expectedHash else { continue }
+            try truncate(partial, to: file.size)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.moveItem(at: partial, to: destination)
+            AppFileLog.write("Recovered complete model file from partial download: \(file.path)")
         }
     }
 
-    private static func sha256Prefix(of url: URL, byteCount: Int64) throws -> String {
+    static func truncate(_ url: URL, to size: Int64) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: UInt64(size))
+    }
+
+    struct ModelIntegrityError: LocalizedError {
+        let path: String
+        var errorDescription: String? {
+            AppText.pick(
+                "Файл модели скачался повреждённым дважды подряд (\(path)). Проверьте соединение и попробуйте снова.",
+                "A model file was corrupted twice in a row (\(path)). Check your connection and try again."
+            )
+        }
+    }
+
+    static func sha256Prefix(of url: URL, byteCount: Int64) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()
@@ -187,10 +235,12 @@ enum ModelDownloader {
         }
     }
 
-    private static func fileSize(_ url: URL) -> Int64 {
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        guard values?.isRegularFile == true else { return 0 }
-        return Int64(values?.fileSize ?? 0)
+    /// Size read straight from the file system. `URL.resourceValues` can return a cached
+    /// value for a file that is still being written.
+    static func fileSize(_ url: URL) -> Int64 {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              attributes[.type] as? FileAttributeType == .typeRegular else { return 0 }
+        return (attributes[.size] as? NSNumber)?.int64Value ?? 0
     }
 }
 
@@ -247,12 +297,15 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
             try handle.close()
             receivedBytes = expectedBytes
         }
-        initialBytes = receivedBytes
         if !FileManager.default.fileExists(atPath: partialURL.path) {
             _ = FileManager.default.createFile(atPath: partialURL.path, contents: nil)
         }
-        fileHandle = try FileHandle(forWritingTo: partialURL)
-        try fileHandle?.seekToEnd()
+        let handle = try FileHandle(forWritingTo: partialURL)
+        fileHandle = handle
+        // Resume from where the file really ends, never from a cached size: a stale
+        // size requests bytes the file already has and appends them a second time.
+        receivedBytes = Int64(try handle.seekToEnd())
+        initialBytes = receivedBytes
         progress(receivedBytes)
         if initialBytes == expectedBytes {
             try fileHandle?.close()
@@ -285,6 +338,9 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
             }
         } onCancel: {
             self.task?.cancel()
+            // Close the file on the delegate queue right away so no late data block is
+            // written after a new transfer has started on the same file.
+            self.delegateQueue.addOperation { self.finish(throwing: CancellationError()) }
         }
     }
 
@@ -332,6 +388,7 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
     }
 
     func urlSession(_: URLSession, dataTask _: URLSessionDataTask, didReceive data: Data) {
+        guard !finished else { return }
         do {
             guard receivedBytes + Int64(data.count) <= expectedBytes else {
                 task?.cancel()
@@ -380,7 +437,6 @@ final class ResumableFileTransfer: NSObject, URLSessionDataDelegate, @unchecked 
     }
 
     private static func fileSize(_ url: URL) -> Int64 {
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
-        return Int64(values?.fileSize ?? 0)
+        ModelDownloader.fileSize(url)
     }
 }
