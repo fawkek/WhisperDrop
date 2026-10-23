@@ -1,7 +1,7 @@
 # WhisperDrop — agent context
 
 - About shows the purpose, version, build, embedded Git commit, `https://x.com/fawkek_obj`, and `https://github.com/fawkek/WhisperDrop`.
-- Release metadata defaults to version `0.3.0`, build `6`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
+- Release metadata defaults to version `0.3.1`, build `7`, and the current 12-character commit. Override with `APP_VERSION` and `APP_BUILD`.
 - `./script/build_and_run.sh --package` builds Release, signs with `DEVELOPER_ID_APPLICATION` when set (otherwise ad hoc), verifies the signature, and creates `dist/WhisperDrop-<version>-macOS.zip`.
 - When both `DEVELOPER_ID_APPLICATION` and `NOTARY_PROFILE` are set, packaging submits the ZIP with `notarytool`, staples and validates the app, then recreates the final ZIP.
 
@@ -296,3 +296,10 @@ Treat the following as required release work, not optional polish:
 - `WhisperDrop --resegment <segments.json> <out.srt>` rebuilds cues from saved Whisper output in a second.
 - `WhisperDrop --snapshots <folder>` renders every screen in light and dark to PNG (AppKit-backed pieces such as menus and the window glass are not drawn).
 - `open -n --env WHISPERDROP_DEMO=<drop|transcribing|finished|proofreading|model|downloading|failed> dist/WhisperDrop.app` opens the real app on one screen with sample data for README screenshots; demo mode never reads or writes the recovery draft.
+- `dist/WhisperDrop.app/Contents/MacOS/WhisperDrop --proofread <in.srt> <out.srt>` runs proofreading with the real Qwen model (the runtime is found only inside the app bundle). Set `WHISPERDROP_DEBUG_PROOFREAD=<file>` to write the last prompt and raw model answer there.
+- `WHISPERDROP_APPEARANCE=light|dark` forces the app's appearance for screenshots.
+
+## Proofreading rules (0.3.1)
+
+- Qwen3 0.6B gets its instructions in `--system` and the input JSON ending with `/no_think`; without both it reasons until the token limit. Chunks are 6 cues; neighbouring cues are not passed as context because the small model then rewrote them.
+- `ProofreadingGuard` keeps a correction only if it changes punctuation, case or spacing, or replaces a word the system spell checker marks as misspelled with one it accepts, by a few letters. Never loosen this: viewers who rely on subtitles can't hear a swapped word.

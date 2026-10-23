@@ -205,6 +205,7 @@ final class AppStore {
         persistDraft()
         progress = 1
         phase = .finished
+        AppAttention.workFinished()
     }
 
     private func loadSubtitlesForImprovement(_ url: URL) {
@@ -384,6 +385,7 @@ final class AppStore {
                 progress = 1
                 improvementWord = ""
                 phase = .finished
+                AppAttention.workFinished()
                 Self.logger.info("Proofreading finished: cues=\(improved.count, privacy: .public), changed=\(changedCount, privacy: .public)")
                 AppFileLog.write("Proofreading finished: cues=\(improved.count), changed=\(changedCount)")
             } catch is CancellationError {

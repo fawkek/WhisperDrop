@@ -34,6 +34,20 @@ enum Snapshots {
             store.progress = 0.42
             store.improvementWord = AppText.pick("субтитры", "subtitles")
         }),
+        ("tracks", { store in
+            store.selectedFile = URL(filePath: "/Users/demo/Movies/film.mkv")
+            store.audioTracks = [
+                AudioTrackOption(id: 0, languageCode: "rus", codec: "ac3", sampleRate: "48000 Hz", channelLayout: "5.1(side)"),
+                AudioTrackOption(id: 1, languageCode: "eng", codec: "eac3", sampleRate: "48000 Hz", channelLayout: "5.1(side)"),
+                AudioTrackOption(id: 2, languageCode: "eng", codec: "aac (LC)", sampleRate: "48000 Hz", channelLayout: "stereo"),
+            ]
+            store.selectedAudioTrackID = 0
+            store.phase = .selectingAudioTrack
+        }),
+        ("importing", { store in
+            store.phase = .importingModel
+            store.progress = 0.4
+        }),
         ("failed", { $0.phase = .failed(AppText.pick("Не удалось извлечь аудио из видео.", "Could not extract audio from the video.")) }),
     ]
 

@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/fawkek/WhisperDrop/releases/download/v0.3.0/WhisperDrop-0.3.0-macOS.zip"><b>↓ Скачать тестовую сборку для macOS</b></a>
+  <a href="https://github.com/fawkek/WhisperDrop/releases/download/v0.3.1/WhisperDrop-0.3.1-macOS.zip"><b>↓ Скачать тестовую сборку для macOS</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/fawkek/WhisperDrop/releases/tag/v0.3.0">Все релизы</a>
+  <a href="https://github.com/fawkek/WhisperDrop/releases/tag/v0.3.1">Все релизы</a>
 </p>
 
 ---
@@ -73,7 +73,7 @@ WhisperDrop — бесплатное нативное приложение дл�
 
 #### Скачать готовое приложение
 
-Скачайте [WhisperDrop 0.3.0 для macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.3.0/WhisperDrop-0.3.0-macOS.zip), распакуйте ZIP и перенесите `WhisperDrop.app` в папку «Программы». Это тестовая сборка без Apple Developer ID и notarization, поэтому macOS может показать предупреждение при первом открытии. Модель распознавания не входит в архив: приложение предложит скачать её при первом запуске
+Скачайте [WhisperDrop 0.3.1 для macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.3.1/WhisperDrop-0.3.1-macOS.zip), распакуйте ZIP и перенесите `WhisperDrop.app` в папку «Программы». Это тестовая сборка без Apple Developer ID и notarization, поэтому macOS может показать предупреждение при первом открытии. Модель распознавания не входит в архив: приложение предложит скачать её при первом запуске
 
 #### Собрать из исходного кода
 
@@ -98,6 +98,14 @@ WhisperDrop обрабатывает аудио, видео и текст суб
 ```
 
 Их можно удалить, чтобы освободить место: при следующем использовании приложение снова предложит загрузку. Встроенный токенизатор уже входит в приложение и отдельно пользователю не нужен
+
+### Как устроена вычитка
+
+Вычитку выполняет небольшая модель Qwen3 0.6B через готовый движок BaseRT для Metal. Он лежит в репозитории в собранном виде (`Runtime/BaseRT/basert-complete` и `baseRT.metallib`), его исходного кода здесь нет. Приложение запускает его только на время вычитки: передаёт текст реплик и получает исправленный текст обратно
+
+Модель маленькая и может ошибаться, поэтому WhisperDrop принимает только безопасные правки: пунктуацию, регистр, пробелы и замену слова с опечаткой на настоящее слово по системной проверке орфографии. Правильно написанные слова не меняются, таймкоды и порядок реплик сохраняются
+
+SHA-256 движка: `basert-complete` — `e7344eeabbc92bd87340018d64e4dfda3f42b1f4370a6c11db050e6b4c2821f8`, `baseRT.metallib` — `e9fd339e047e9a045dad2e0400ab8de11aac41a60a1c0a2fa29cf38c67c014c2`
 
 ### Требования
 
@@ -156,7 +164,7 @@ Drop an `.srt` or `.vtt` file onto the first WhisperDrop screen instead of a vid
 
 #### Download the app
 
-Download [WhisperDrop 0.3.0 for macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.3.0/WhisperDrop-0.3.0-macOS.zip), unzip it, and move `WhisperDrop.app` to Applications. This is a test build without a Developer ID signature or notarization, so macOS may show a warning the first time it is opened. The transcription model is not included; the app offers to download it on first launch
+Download [WhisperDrop 0.3.1 for macOS](https://github.com/fawkek/WhisperDrop/releases/download/v0.3.1/WhisperDrop-0.3.1-macOS.zip), unzip it, and move `WhisperDrop.app` to Applications. This is a test build without a Developer ID signature or notarization, so macOS may show a warning the first time it is opened. The transcription model is not included; the app offers to download it on first launch
 
 #### Build from source
 
@@ -181,6 +189,14 @@ WhisperDrop processes audio, video, and subtitle text locally on your Mac. It us
 ```
 
 You can remove them to free disk space; the app will offer to download them again when needed. The compatible tokenizer is already bundled with the app, so users never have to install it separately
+
+### How proofreading works
+
+Proofreading uses the small Qwen3 0.6B model through the prebuilt BaseRT Metal runtime, which ships in this repository as binaries (`Runtime/BaseRT/basert-complete` and `baseRT.metallib`); its source code is not included here. The app starts it only while proofreading, passes it the cue text, and reads the corrected text back
+
+The model is small and can be wrong, so WhisperDrop keeps only safe edits: punctuation, capitalization, spacing, and replacing a misspelled word with a real word according to the system spell checker. Correctly spelled words are never changed, and cue timing and order are preserved
+
+Runtime SHA-256: `basert-complete` — `e7344eeabbc92bd87340018d64e4dfda3f42b1f4370a6c11db050e6b4c2821f8`, `baseRT.metallib` — `e9fd339e047e9a045dad2e0400ab8de11aac41a60a1c0a2fa29cf38c67c014c2`
 
 ### Requirements
 

@@ -44,7 +44,9 @@ struct AudioTrackOption: Identifiable, Equatable, Sendable {
         switch channelLayout.lowercased() {
         case "mono": return AppText.pick("Моно", "Mono")
         case "stereo": return AppText.pick("Стерео", "Stereo")
-        default: return channelLayout
+        default:
+            // ffmpeg variants such as "5.1(side)" read as plain "5.1".
+            return channelLayout.replacingOccurrences(of: #"\(.*\)"#, with: "", options: .regularExpression)
         }
     }
 
