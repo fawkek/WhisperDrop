@@ -4,6 +4,7 @@ enum SubtitleImportError: LocalizedError {
     case unsupportedFormat
     case unreadableText
     case noCues
+    case plainTextWithoutTimecodes
 
     var errorDescription: String? {
         switch self {
@@ -13,6 +14,11 @@ enum SubtitleImportError: LocalizedError {
             AppText.pick("Не удалось прочитать текст субтитров.", "Couldn’t read subtitle text.")
         case .noCues:
             AppText.pick("В файле не найдены субтитры.", "No subtitle cues were found in the file.")
+        case .plainTextWithoutTimecodes:
+            AppText.pick(
+                "В текстовом файле нет таймкодов. Перетащите видео или аудио, чтобы создать субтитры, либо файл SRT, VTT или ASS.",
+                "This text file has no timecodes. Drop a video or audio file to create subtitles, or an SRT, VTT, or ASS file."
+            )
         }
     }
 }
@@ -39,10 +45,14 @@ enum SubtitleImporter {
             cues = parseTimedBlocks(text)
         case "vtt", "webvtt":
             cues = parseTimedBlocks(text.replacingOccurrences(of: "WEBVTT", with: ""))
+                .map { SubtitleCue(start: $0.start, end: $0.end, text: cleanVTTMarkup($0.text)) }
         case "ass":
             cues = parseASS(text)
         case "txt":
-            cues = parsePlainText(text)
+            // A .txt is subtitles only when it carries SRT-style timecodes; plain text
+            // would get invented timings.
+            guard text.contains("-->") else { throw SubtitleImportError.plainTextWithoutTimecodes }
+            cues = parseTimedBlocks(text)
         default:
             throw SubtitleImportError.unsupportedFormat
         }
@@ -55,24 +65,48 @@ enum SubtitleImporter {
     }
 
     private static func readText(_ url: URL) throws -> String {
-        let data = try Data(contentsOf: url)
-        let encodings: [String.Encoding] = [
-            .utf8,
-            .utf8,
-            .utf16LittleEndian,
-            .utf16BigEndian,
-            .windowsCP1251,
-            .windowsCP1252
-        ]
-        for encoding in encodings {
-            if let text = String(data: data, encoding: encoding) {
-                return text
-                    .replacingOccurrences(of: "\u{FEFF}", with: "")
-                    .replacingOccurrences(of: "\r\n", with: "\n")
-                    .replacingOccurrences(of: "\r", with: "\n")
-            }
+        guard let text = decode(try Data(contentsOf: url)) else { throw SubtitleImportError.unreadableText }
+        return text
+            .replacingOccurrences(of: "\u{FEFF}", with: "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    /// Picks the text encoding: a BOM first, then UTF-16 recognised by its zero bytes,
+    /// then UTF-8, then Windows-1251 for Cyrillic-heavy text or Windows-1252 otherwise.
+    /// UTF-16 is never guessed without evidence: it "decodes" almost any byte sequence.
+    static func decode(_ data: Data) -> String? {
+        let bytes = [UInt8](data)
+        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { return String(data: data.dropFirst(3), encoding: .utf8) }
+        if bytes.starts(with: [0xFF, 0xFE]) { return String(data: data.dropFirst(2), encoding: .utf16LittleEndian) }
+        if bytes.starts(with: [0xFE, 0xFF]) { return String(data: data.dropFirst(2), encoding: .utf16BigEndian) }
+        let sample = bytes.prefix(4_096)
+        if sample.count >= 4 {
+            let evenZeros = stride(from: 0, to: sample.count, by: 2).filter { sample[sample.startIndex + $0] == 0 }.count
+            let oddZeros = stride(from: 1, to: sample.count, by: 2).filter { sample[sample.startIndex + $0] == 0 }.count
+            let half = Double(sample.count / 2)
+            if Double(oddZeros) > half * 0.3, let text = String(data: data, encoding: .utf16LittleEndian) { return text }
+            if Double(evenZeros) > half * 0.3, let text = String(data: data, encoding: .utf16BigEndian) { return text }
         }
-        throw SubtitleImportError.unreadableText
+        // Real text has no NUL bytes, so UTF-8 is checked after the UTF-16 test.
+        if let text = String(data: data, encoding: .utf8) { return text }
+
+        // Russian text in Windows-1251 is mostly high bytes; Western text in
+        // Windows-1252 is mostly ASCII letters with an occasional accent.
+        let high = bytes.filter { $0 >= 0x80 }.count
+        let asciiLetters = bytes.filter { (0x41...0x5A).contains($0) || (0x61...0x7A).contains($0) }.count
+        let cyrillicLikely = Double(high) / Double(max(1, high + asciiLetters)) > 0.4
+        return String(data: data, encoding: cyrillicLikely ? .windowsCP1251 : .windowsCP1252)
+    }
+
+    /// Removes WebVTT voice/class/timestamp tags and decodes its character entities.
+    static func cleanVTTMarkup(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: #"<[^>]*>"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
     }
 
     private static func parseTimedBlocks(_ text: String) -> [SubtitleCue] {
@@ -101,18 +135,13 @@ enum SubtitleImporter {
                   let end = parseTimestamp(fields[2]) else { return nil }
             let cueText = fields.dropFirst(9)
                 .joined(separator: ",")
+                // Style overrides such as {\\i1} or {\\pos(…)} are formatting, not text.
+                .replacingOccurrences(of: #"\{[^}]*\}"#, with: "", options: .regularExpression)
                 .replacingOccurrences(of: #"\\N"#, with: "\n")
                 .replacingOccurrences(of: #"\N"#, with: "\n")
+                .replacingOccurrences(of: #"\n"#, with: "\n")
+                .replacingOccurrences(of: #"\h"#, with: " ")
             return SubtitleCue(start: start, end: end, text: cueText)
-        }
-    }
-
-    private static func parsePlainText(_ text: String) -> [SubtitleCue] {
-        text.split(separator: "\n").enumerated().compactMap { index, line in
-            let cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cleaned.isEmpty else { return nil }
-            let start = TimeInterval(index * 3)
-            return SubtitleCue(start: start, end: start + 3, text: cleaned)
         }
     }
 

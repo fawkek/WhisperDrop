@@ -8,7 +8,11 @@ enum AppFileLog {
         return root.appending(path: "WhisperDrop.log")
     }
 
+    /// Unit tests must not write into the user's real log.
+    private static let isRunningTests = NSClassFromString("XCTestCase") != nil
+
     static func write(_ message: String) {
+        guard !isRunningTests else { return }
         let line = "\(timestamp()) \(message)\n"
         let data = Data(line.utf8)
         do {

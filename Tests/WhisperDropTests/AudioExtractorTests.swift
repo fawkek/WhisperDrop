@@ -24,17 +24,27 @@ struct AudioExtractorTests {
         #expect(tracks[1].details.contains("AAC"))
     }
 
-    @Test func ffmpegDownmixesMultichannelAudioForCoreAudioCompatibility() {
-        let arguments = AudioExtractor.ffmpegArguments(
+    @Test func ffmpegWritesWhisperNativeMonoWAV() {
+        let command = AudioExtractor.ffmpegArguments(
             source: URL(fileURLWithPath: "/tmp/source.mkv"),
-            output: URL(fileURLWithPath: "/tmp/output.m4a"),
-            audioTrackIndex: 2
-        )
-
-        let command = arguments.joined(separator: " ")
+            output: URL(fileURLWithPath: "/tmp/output.wav"),
+            audioTrackIndex: 2,
+            channelLayout: "stereo"
+        ).joined(separator: " ")
         #expect(command.contains("-map 0:a:2"))
-        #expect(command.contains("-ac 2"))
-        #expect(command.contains("-ar 48000"))
-        #expect(command.contains("-movflags +faststart"))
+        #expect(command.contains("-ac 1"))
+        #expect(command.contains("-ar 16000"))
+        #expect(command.contains("-c:a pcm_s16le"))
+    }
+
+    @Test func ffmpegPutsCentreChannelFirstForSurround() {
+        let command = AudioExtractor.ffmpegArguments(
+            source: URL(fileURLWithPath: "/tmp/film.mkv"),
+            output: URL(fileURLWithPath: "/tmp/output.wav"),
+            audioTrackIndex: 0,
+            channelLayout: "5.1(side)"
+        ).joined(separator: " ")
+        #expect(command.contains("pan=mono|c0=0.6*FC+0.2*FL+0.2*FR"))
+        #expect(!command.contains("-ac 1"))
     }
 }

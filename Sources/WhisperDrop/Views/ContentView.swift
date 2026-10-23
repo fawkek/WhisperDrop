@@ -420,11 +420,25 @@ private struct TranscriptionFinishedView: View {
                 .keyboardShortcut("s", modifiers: .command)
             }
             .fixedSize()
+            .modifier(SaveErrorAlert(store: store))
         }
     }
 
     private var availableEncodings: [SubtitleEncoding] {
         store.exportFormat.requiresUTF8 ? [.utf8] : SubtitleEncoding.allCases
+    }
+}
+
+private struct SaveErrorAlert: ViewModifier {
+    @Bindable var store: AppStore
+
+    func body(content: Content) -> some View {
+        content.alert(
+            AppText.pick("Не удалось сохранить", "Couldn’t save"),
+            isPresented: Binding(get: { store.saveError != nil }, set: { if !$0 { store.saveError = nil } }),
+            actions: { Button("OK") { store.saveError = nil } },
+            message: { Text(store.saveError ?? "") }
+        )
     }
 }
 

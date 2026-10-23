@@ -39,6 +39,9 @@ enum AudioExtractor {
         }
     }
 
+    /// Produces audio Whisper can read: plain audio files pass through; video and
+    /// selected tracks become uncompressed 16 kHz mono WAV, Whisper's native format,
+    /// so the speech is not compressed a second time on the way in.
     static func prepare(
         _ source: URL,
         audioTrack: AudioTrackOption? = nil,
@@ -47,65 +50,21 @@ enum AudioExtractor {
         let directlySupported = ["wav", "mp3", "m4a", "flac", "aiff", "aif", "caf"]
         guard audioTrack != nil || !directlySupported.contains(source.pathExtension.lowercased()) else { return source }
 
-        if let audioTrack {
-            if ffmpegExecutable != nil {
-                return try await prepareWithFFmpeg(source, audioTrackIndex: audioTrack.id, progress: progress)
-            }
-            return try await prepareSelectedTrackWithAVFoundation(
-                source,
-                audioTrackIndex: audioTrack.id,
-                progress: progress
-            )
+        if let audioTrack, ffmpegExecutable != nil {
+            return try await prepareWithFFmpeg(source, audioTrack: audioTrack, progress: progress)
         }
-
-        let output = FileManager.default.temporaryDirectory
-            .appending(path: "WhisperDrop-\(UUID().uuidString).m4a")
-        let asset = AVURLAsset(url: source)
-        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            return try await prepareWithFFmpeg(source, audioTrackIndex: 0, progress: progress)
-        }
-
-        let observer = Task {
-            while !Task.isCancelled {
-                progress(Double(exporter.progress))
-                try? await Task.sleep(for: .milliseconds(120))
-            }
-        }
-        defer { observer.cancel() }
-
-        exporter.outputURL = output
-        exporter.outputFileType = .m4a
         do {
-            try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { continuation in
-                    exporter.exportAsynchronously {
-                        switch exporter.status {
-                        case .completed:
-                            continuation.resume()
-                        case .cancelled:
-                            continuation.resume(throwing: CancellationError())
-                        case .failed:
-                            continuation.resume(throwing: exporter.error ?? CocoaError(.fileReadUnknown))
-                        default:
-                            continuation.resume(throwing: exporter.error ?? CocoaError(.fileReadUnknown))
-                        }
-                    }
-                }
-            } onCancel: {
-                exporter.cancelExport()
-            }
+            return try await exportPCM(source, audioTrackIndex: audioTrack?.id ?? 0, progress: progress)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            try? FileManager.default.removeItem(at: output)
             AppFileLog.write("AVFoundation audio extraction failed, trying ffmpeg: \(error.localizedDescription)")
-            return try await prepareWithFFmpeg(source, audioTrackIndex: 0, progress: progress)
+            return try await prepareWithFFmpeg(source, audioTrack: audioTrack, progress: progress)
         }
-        progress(1)
-        return output
     }
 
-    private static func prepareSelectedTrackWithAVFoundation(
+    /// Decodes one audio track with AVFoundation into a 16 kHz mono 16-bit WAV.
+    private static func exportPCM(
         _ source: URL,
         audioTrackIndex: Int,
         progress: @escaping @Sendable (Double) -> Void
@@ -114,62 +73,56 @@ enum AudioExtractor {
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard tracks.indices.contains(audioTrackIndex) else {
             throw ExtractionError(details: AppText.pick(
-                "Выбранная аудиодорожка больше недоступна.",
-                "The selected audio track is no longer available."
+                tracks.isEmpty ? "В файле не найдена аудиодорожка." : "Выбранная аудиодорожка больше недоступна.",
+                tracks.isEmpty ? "No audio track was found in the file." : "The selected audio track is no longer available."
             ))
         }
+        let duration = max(0.001, CMTimeGetSeconds(try await asset.load(.duration)))
 
-        let duration = try await asset.load(.duration)
-        let composition = AVMutableComposition()
-        guard let compositionTrack = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            throw ExtractionError(details: AppText.pick(
-                "Не удалось подготовить выбранную дорожку.",
-                "Could not prepare the selected track."
-            ))
-        }
-        try compositionTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: duration),
-            of: tracks[audioTrackIndex],
-            at: .zero
-        )
-
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false,
+        ]
         let output = FileManager.default.temporaryDirectory
-            .appending(path: "WhisperDrop-\(UUID().uuidString).m4a")
-        guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
-            throw ExtractionError(details: AppText.pick(
-                "Не удалось создать аудиофайл выбранной дорожки.",
-                "Could not create an audio file for the selected track."
-            ))
-        }
+            .appending(path: "WhisperDrop-\(UUID().uuidString).wav")
+        let reader = try AVAssetReader(asset: asset)
+        let readerOutput = AVAssetReaderAudioMixOutput(audioTracks: [tracks[audioTrackIndex]], audioSettings: settings)
+        guard reader.canAdd(readerOutput) else { throw ExtractionError(details: "AVAssetReader") }
+        reader.add(readerOutput)
+        let writer = try AVAssetWriter(outputURL: output, fileType: .wav)
+        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+        input.expectsMediaDataInRealTime = false
+        guard writer.canAdd(input) else { throw ExtractionError(details: "AVAssetWriter") }
+        writer.add(input)
 
-        let observer = Task {
-            while !Task.isCancelled {
-                progress(Double(exporter.progress))
-                try? await Task.sleep(for: .milliseconds(120))
-            }
+        guard reader.startReading(), writer.startWriting() else {
+            throw reader.error ?? writer.error ?? CocoaError(.fileReadUnknown)
         }
-        defer { observer.cancel() }
-
-        exporter.outputURL = output
-        exporter.outputFileType = .m4a
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                exporter.exportAsynchronously {
-                    switch exporter.status {
-                    case .completed:
-                        continuation.resume()
-                    case .cancelled:
-                        continuation.resume(throwing: CancellationError())
-                    default:
-                        continuation.resume(throwing: exporter.error ?? CocoaError(.fileReadUnknown))
-                    }
+        writer.startSession(atSourceTime: .zero)
+        do {
+            while let buffer = readerOutput.copyNextSampleBuffer() {
+                try Task.checkCancellation()
+                while !input.isReadyForMoreMediaData {
+                    try await Task.sleep(for: .milliseconds(5))
                 }
+                guard input.append(buffer) else { throw writer.error ?? CocoaError(.fileWriteUnknown) }
+                let seconds = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(buffer))
+                if seconds.isFinite { progress(min(1, seconds / duration)) }
             }
-        } onCancel: {
-            exporter.cancelExport()
+            guard reader.status == .completed else { throw reader.error ?? CocoaError(.fileReadUnknown) }
+            input.markAsFinished()
+            await writer.finishWriting()
+            guard writer.status == .completed else { throw writer.error ?? CocoaError(.fileWriteUnknown) }
+        } catch {
+            reader.cancelReading()
+            writer.cancelWriting()
+            try? FileManager.default.removeItem(at: output)
+            throw error
         }
         progress(1)
         return output
@@ -177,7 +130,7 @@ enum AudioExtractor {
 
     private static func prepareWithFFmpeg(
         _ source: URL,
-        audioTrackIndex: Int,
+        audioTrack: AudioTrackOption?,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
         guard let executable = ffmpegExecutable else {
@@ -188,7 +141,7 @@ enum AudioExtractor {
         }
 
         let output = FileManager.default.temporaryDirectory
-            .appending(path: "WhisperDrop-\(UUID().uuidString).m4a")
+            .appending(path: "WhisperDrop-\(UUID().uuidString).wav")
         let process = Process()
         let errorURL = FileManager.default.temporaryDirectory
             .appending(path: "WhisperDrop-ffmpeg-\(UUID().uuidString).log")
@@ -202,7 +155,8 @@ enum AudioExtractor {
         process.arguments = ffmpegArguments(
             source: source,
             output: output,
-            audioTrackIndex: audioTrackIndex
+            audioTrackIndex: audioTrack?.id ?? 0,
+            channelLayout: audioTrack?.channelLayout
         )
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errorFile
@@ -247,24 +201,32 @@ enum AudioExtractor {
             ))
         }
 
-        AppFileLog.write("FFmpeg audio extraction succeeded: \(source.lastPathComponent), audioTrack=\(audioTrackIndex), stereo=true")
+        AppFileLog.write("FFmpeg audio extraction succeeded: \(source.lastPathComponent), audioTrack=\(audioTrack?.id ?? 0)")
         progress(1)
         return output
     }
 
+    /// 16 kHz mono PCM WAV. Surround tracks (5.1, 7.1) are mixed with the centre channel
+    /// in front, where film dialogue lives, so music and effects compete less with speech.
     static func ffmpegArguments(
         source: URL,
         output: URL,
-        audioTrackIndex: Int
+        audioTrackIndex: Int,
+        channelLayout: String? = nil
     ) -> [String] {
-        [
+        var arguments = [
             "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
             "-i", source.path,
             "-map", "0:a:\(audioTrackIndex)", "-vn",
-            "-ac", "2", "-ar", "48000",
-            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-            output.path,
         ]
+        let layout = channelLayout?.lowercased() ?? ""
+        if layout.hasPrefix("5.1") || layout.hasPrefix("7.1") {
+            arguments += ["-af", "pan=mono|c0=0.6*FC+0.2*FL+0.2*FR"]
+        } else {
+            arguments += ["-ac", "1"]
+        }
+        arguments += ["-ar", "16000", "-c:a", "pcm_s16le", output.path]
+        return arguments
     }
 
     private static var ffmpegExecutable: URL? {

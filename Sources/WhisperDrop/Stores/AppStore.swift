@@ -49,6 +49,8 @@ final class AppStore {
         }
     }
     var exportEncoding: SubtitleEncoding = .utf8
+    /// Shown as an alert on the finished screen; saving never discards the subtitles.
+    var saveError: String?
     private let service = TranscriptionService()
     private let improvementService = TextImprovementService()
     private var workTask: Task<Void, Never>?
@@ -449,8 +451,10 @@ final class AppStore {
             let text = SubtitleExporter.render(cues, format: exportFormat)
             let data = try SubtitleExporter.data(text, encoding: exportEncoding)
             try data.write(to: url, options: .atomic)
+            // Saved to disk: the crash-recovery copy has done its job.
+            SubtitleDraftStore.clear()
         } catch {
-            phase = .failed(error.localizedDescription)
+            saveError = error.localizedDescription
         }
     }
 

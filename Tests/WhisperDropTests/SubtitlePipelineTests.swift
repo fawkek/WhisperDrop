@@ -233,6 +233,34 @@ final class SegmentHallucinationTests: XCTestCase {
         XCTAssertEqual(cleaned.first?.start, 0)
     }
 
+    func testDropsTextTooFastToBeSpeech() {
+        let invented = TranscribedSegment(start: 74.38, end: 74.40, text: "Продолжение следует...", words: [])
+        let real = segment("Спасибо, что дослушали до конца.", start: 42.96)
+        XCTAssertEqual(SubtitleHallucinationFilter.clean(segments: [real, invented]).map(\.start), [42.96])
+    }
+
+    func testClampsSegmentsToAudioDuration() {
+        let segments = [
+            segment("Последняя фраза.", start: 48.5),
+            TranscribedSegment(start: 74.38, end: 75.6, text: "Продолжение следует...", words: []),
+        ]
+        let clamped = TranscriptionService.clamped(segments, toDuration: 49.58)
+        XCTAssertEqual(clamped.count, 1)
+        XCTAssertLessThanOrEqual(clamped[0].end, 49.58)
+    }
+
+    func testLanguageProbesSkipSilenceAndSpreadAcrossFile() {
+        let rate = 1_000
+        var samples = [Float](repeating: 0, count: rate * 200)
+        for second in 40..<180 where second % 2 == 0 {
+            for index in (second * rate)..<((second + 1) * rate) { samples[index] = index % 2 == 0 ? 0.3 : -0.3 }
+        }
+        let starts = TranscriptionService.languageProbeStarts(samples, sampleRate: rate)
+        XCTAssertEqual(starts.count, 3)
+        XCTAssertTrue(starts.allSatisfy { $0 >= 30 * rate })
+        XCTAssertGreaterThan(starts[2] - starts[0], 60 * rate)
+    }
+
     func testRepeatedSentenceLoopKeepsTwo() {
         let line = "Мы будем рады видеть вас снова."
         let cleaned = SubtitleHallucinationFilter.clean(segments: (0..<5).map { segment(line, start: Double($0) * 3) })

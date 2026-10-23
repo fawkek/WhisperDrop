@@ -55,7 +55,7 @@ enum SubtitleExporter {
 
     private static func renderVTT(_ cues: [SubtitleCue]) -> String {
         let body = cues.map { cue in
-            "\(vttTimestamp(cue.start)) --> \(vttTimestamp(cue.end))\n\(WhisperTextSanitizer.clean(cue.text))"
+            "\(vttTimestamp(cue.start)) --> \(vttTimestamp(cue.end))\n\(escapeVTT(cueText(cue)))"
         }.joined(separator: "\n\n")
         return "WEBVTT\n\n\(body)\n"
     }
@@ -75,10 +75,31 @@ enum SubtitleExporter {
         Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         let events = cues.map { cue in
-            let text = WhisperTextSanitizer.clean(cue.text).replacingOccurrences(of: "\n", with: #"\N"#)
+            let text = cueText(cue)
+                // Braces start ASS override blocks; keep them as plain brackets.
+                .replacingOccurrences(of: "{", with: "(")
+                .replacingOccurrences(of: "}", with: ")")
+                .replacingOccurrences(of: "\n", with: #"\N"#)
             return "Dialogue: 0,\(assTimestamp(cue.start)),\(assTimestamp(cue.end)),Default,,0,0,0,,\(text)"
         }.joined(separator: "\n")
         return header + "\n" + events + "\n"
+    }
+
+    /// Cue text without control tokens or blank lines: a blank line ends an SRT/VTT cue early.
+    static func cueText(_ cue: SubtitleCue) -> String {
+        WhisperTextSanitizer.clean(cue.text)
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    /// WebVTT treats `<` and `&` as markup and `-->` as a timing line.
+    static func escapeVTT(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 
     private static func vttTimestamp(_ seconds: TimeInterval) -> String {

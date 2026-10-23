@@ -3,7 +3,7 @@ import Foundation
 enum SRTFormatter {
     static func render(_ cues: [SubtitleCue]) -> String {
         cues.enumerated().map { index, cue in
-            "\(index + 1)\n\(timestamp(cue.start)) --> \(timestamp(cue.end))\n\(WhisperTextSanitizer.clean(cue.text))"
+            "\(index + 1)\n\(timestamp(cue.start)) --> \(timestamp(cue.end))\n\(SubtitleExporter.cueText(cue).replacingOccurrences(of: "-->", with: "→"))"
         }.joined(separator: "\n\n") + "\n"
     }
 

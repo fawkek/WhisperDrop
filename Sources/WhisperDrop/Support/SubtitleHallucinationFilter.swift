@@ -76,6 +76,10 @@ enum SubtitleHallucinationFilter {
             let value = normalized(segment.text)
             guard !value.isEmpty, !isKnownHallucination(segment.text) else { continue }
 
+            // Nobody says this much this fast: ~40 characters per second is far beyond
+            // even rapid speech, and a few words in a fraction of a second is invented.
+            let duration = max(0.001, segment.end - segment.start)
+            if Double(value.count) / duration > 40 || (duration < 0.25 && value.count > 6) { continue }
             // Whisper's own silence test: likely no speech and low confidence.
             if segment.noSpeechProb > 0.6 && segment.avgLogprob < -1.0 { continue }
             // Very repetitive output that survived temperature fallback is a decoding loop.
