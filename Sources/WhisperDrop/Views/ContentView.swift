@@ -3,12 +3,15 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var store: AppStore
+    /// True when rendered offscreen by the snapshot tool, which can't draw AppKit views.
+    var isSnapshot = false
     @State private var isTargeted = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
             switch store.phase {
-            case .needsModel, .downloading:
+            case .needsModel, .downloading, .importingModel:
                 ModelSetupView(store: store)
             case .ready:
                 FileDropView(store: store, isTargeted: isTargeted)
@@ -28,8 +31,28 @@ struct ContentView: View {
         }
         .animation(.easeOut(duration: 0.25), value: store.phase)
         .frame(width: 600, height: 600)
-        .background(GlassWindowConfigurator().frame(width: 0, height: 0))
-        .onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: store.accept)
+        .background(Theme.windowTint(colorScheme).ignoresSafeArea())
+        .background {
+            if !isSnapshot { GlassWindowConfigurator().frame(width: 0, height: 0) }
+        }
+        .tint(Theme.buttonEnd)
+        .modifier(FileDropTarget(isEnabled: !isSnapshot, isTargeted: $isTargeted, perform: store.accept))
+    }
+}
+
+/// The window-wide drop target. Off in offscreen snapshots, where AppKit-backed
+/// modifiers can't be drawn.
+private struct FileDropTarget: ViewModifier {
+    let isEnabled: Bool
+    @Binding var isTargeted: Bool
+    let perform: ([NSItemProvider]) -> Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: perform)
+        } else {
+            content
+        }
     }
 }
 
@@ -41,10 +64,10 @@ private struct AudioTrackSelectionView: View {
             VStack(spacing: 8) {
                 Image(systemName: "waveform.badge.magnifyingglass")
                     .font(.system(size: 38, weight: .light))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Theme.purple)
 
                 Text(AppText.pick("Выберите аудиодорожку", "Choose an audio track"))
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
 
                 Text(store.selectedFile?.lastPathComponent ?? "")
                     .font(.system(size: 12))
@@ -75,15 +98,15 @@ private struct AudioTrackSelectionView: View {
                 "Для распознавания будет использована только выбранная дорожка",
                 "Only the selected track will be used for transcription"
             ))
-            .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
                 Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
                     .keyboardShortcut(.cancelAction)
 
                 Button(AppText.pick("Продолжить", "Continue"), action: store.continueWithSelectedAudioTrack)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(AccentButtonStyle())
                     .keyboardShortcut(.defaultAction)
             }
             .controlSize(.large)
@@ -101,7 +124,7 @@ private struct AudioTrackRow: View {
             HStack(spacing: 12) {
                 Image(systemName: "speaker.wave.2")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .foregroundStyle(isSelected ? Theme.purple : .secondary)
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -120,18 +143,18 @@ private struct AudioTrackRow: View {
 
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Theme.purple)
                     .opacity(isSelected ? 1 : 0)
             }
             .padding(.horizontal, 14)
             .frame(height: 58)
             .background(
-                isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.045),
+                isSelected ? Theme.purple.opacity(0.12) : Color.primary.opacity(0.045),
                 in: RoundedRectangle(cornerRadius: 12, style: .continuous)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 1)
+                    .strokeBorder(isSelected ? Theme.purple.opacity(0.55) : Color.clear, lineWidth: 1)
             }
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
@@ -143,79 +166,97 @@ private struct AudioTrackRow: View {
 private struct ModelSetupView: View {
     let store: AppStore
 
+    private var isBusy: Bool { store.phase == .downloading || store.phase == .importingModel }
+
     var body: some View {
         StateLayout {
-            VStack(spacing: 20) {
-                Image(systemName: "arrow.down.circle")
-                    .font(.system(size: 40, weight: .light))
-                    .foregroundStyle(Color.accentColor)
+            AppMark(size: 76)
 
-                VStack(spacing: 6) {
-                    Text(store.phase == .downloading
-                         ? AppText.pick("Загрузка модели", "Downloading model")
-                         : AppText.pick("Модель распознавания", "Speech recognition model"))
-                        .font(.system(size: 17, weight: .semibold))
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 22, weight: .semibold))
+                Text(ModelLocator.displayName)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                Text(ModelLocator.description)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
 
-                    Text(ModelLocator.displayName)
-                        .font(.system(size: 13, weight: .medium))
+            if isBusy {
+                VStack(spacing: 10) {
+                    AccentBar(progress: store.progress).frame(width: 300)
+                    HStack {
+                        Text(statusLine)
+                        Spacer()
+                        Text("\(Int(store.progress * 100))%")
+                    }
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 300)
+                    .contentTransition(.numericText())
+                }
+                if store.phase == .downloading {
+                    Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+                        .buttonStyle(QuietButtonStyle())
+                        .keyboardShortcut(.cancelAction)
+                }
+            } else {
+                Label(byteCount(ModelLocator.expectedDownloadBytes), systemImage: "internaldrive")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
 
-                    Text(ModelLocator.description)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 340)
+                if let error = store.modelDownloadError {
+                    Label {
+                        Text(error).multilineTextAlignment(.center)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(.orange)
+                    .lineLimit(3)
+                    .frame(maxWidth: 360)
                 }
 
-                if store.phase == .downloading {
-                    VStack(spacing: 10) {
-                        ProgressView(value: store.progress).frame(width: 280)
-                        HStack {
-                            Text(AppText.pick(
-                                "Загружено \(byteCount(store.downloadedModelBytes)) из \(byteCount(store.modelDownloadTotalBytes))",
-                                "Downloaded \(byteCount(store.downloadedModelBytes)) of \(byteCount(store.modelDownloadTotalBytes))"
-                            ))
-                            Spacer()
-                            Text("\(Int(store.progress * 100))%")
-                        }
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 280)
-                        .contentTransition(.numericText())
+                VStack(spacing: 10) {
+                    Button(action: store.downloadModel) {
+                        Label(
+                            store.modelDownloadError == nil
+                                ? AppText.pick("Скачать модель", "Download model")
+                                : AppText.pick("Повторить загрузку", "Retry download"),
+                            systemImage: "arrow.down"
+                        )
                     }
-                    Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
+                    .buttonStyle(AccentButtonStyle())
+                    .keyboardShortcut(.defaultAction)
+
+                    Button(AppText.pick("У меня уже есть модель…", "I already have the model…"), action: store.importExistingModel)
                         .buttonStyle(.plain)
-                        .font(.system(size: 12))
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
-                } else {
-                    Label(byteCount(ModelLocator.expectedDownloadBytes), systemImage: "internaldrive")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-
-                    if let error = store.modelDownloadError {
-                        Label {
-                            Text(error)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.center)
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                        }
-                        .font(.system(size: 11))
-                        .foregroundStyle(.orange)
-                        .frame(maxWidth: 320)
-                    }
-
-                    Button(
-                        store.modelDownloadError == nil
-                            ? AppText.pick("Скачать модель", "Download model")
-                            : AppText.pick("Повторить загрузку", "Retry download"),
-                        systemImage: "arrow.down",
-                        action: store.downloadModel
-                    )
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
                 }
             }
         }
+    }
+
+    private var title: String {
+        switch store.phase {
+        case .downloading: AppText.pick("Загрузка модели", "Downloading model")
+        case .importingModel: AppText.pick("Проверка модели", "Checking model")
+        default: AppText.pick("Модель распознавания", "Speech recognition model")
+        }
+    }
+
+    private var statusLine: String {
+        if store.phase == .importingModel {
+            return AppText.pick("Сверяем файлы и копируем", "Verifying and copying files")
+        }
+        return AppText.pick(
+            "\(byteCount(store.downloadedModelBytes)) из \(byteCount(store.modelDownloadTotalBytes))",
+            "\(byteCount(store.downloadedModelBytes)) of \(byteCount(store.modelDownloadTotalBytes))"
+        )
     }
 
     private func byteCount(_ bytes: Int64) -> String {
@@ -225,121 +266,78 @@ private struct ModelSetupView: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
     }
-
 }
 
+/// Gifski-style: the whole window is the drop target, framed by a slowly turning glow.
 private struct FileDropView: View {
     let store: AppStore
     let isTargeted: Bool
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 30, style: .continuous)
         ZStack {
-            RadialGradient(
-                colors: [Color.cyan.opacity(colorScheme == .dark ? 0.10 : 0.07), .clear],
-                center: .center,
-                startRadius: 20,
-                endRadius: 205
-            )
-            .allowsHitTesting(false)
+            RotatingGlow(blur: isTargeted ? 18 : 24)
+                .opacity(isTargeted ? 1 : 0.9)
+                .clipShape(shape)
 
-            Button(action: store.chooseFile) {
-                VStack(spacing: 0) {
-                    Image(systemName: isTargeted ? "arrow.down" : "film.stack")
-                        .font(.system(size: 27, weight: .light))
-                        .foregroundStyle(isTargeted ? Color.white : Color.accentColor)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 52, height: 52)
-                        .background(iconBackground, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            shape
+                .fill(Theme.surface(colorScheme))
+                .padding(isTargeted ? 3 : 2)
 
-                    Text(isTargeted
-                         ? AppText.pick("Отпустите файл", "Drop the file")
-                         : AppText.pick("Перетащите файл", "Drop a file"))
-                        .font(.system(size: 18, weight: .semibold))
-                        .padding(.top, 18)
+            // A faint echo of the glow inside the zone.
+            RotatingGlow(period: 20, blur: 70)
+                .opacity(colorScheme == .dark ? 0.16 : 0.12)
+                .clipShape(shape)
+                .padding(2)
 
-                    Text(AppText.pick("Видео, аудио или субтитры", "Video, audio, or subtitles"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 5)
-
-                    Text(AppText.pick("или", "or"))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                        .padding(.vertical, 12)
-
-                    HStack(spacing: 9) {
-                        Text(AppText.pick("Выбрать файл", "Choose file"))
-                            .font(.system(size: 13, weight: .semibold))
-                        ShortcutHint(keys: "⌘O", inverted: true)
+            VStack(spacing: 0) {
+                Image(systemName: isTargeted ? "arrow.down" : "square.and.arrow.down")
+                    .font(.system(size: 28, weight: .regular))
+                    .foregroundStyle(isTargeted ? AnyShapeStyle(.white) : AnyShapeStyle(Theme.accent))
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 68, height: 68)
+                    .background {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(isTargeted ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.primary.opacity(0.06)))
                     }
-                    .padding(.horizontal, 18)
-                    .frame(height: 38)
-                    .foregroundStyle(.white)
-                    .background(buttonBackground, in: Capsule())
-                    .shadow(color: Color.blue.opacity(colorScheme == .dark ? 0.28 : 0.18), radius: 12, y: 5)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(.primary.opacity(isTargeted ? 0 : 0.1), lineWidth: 1)
+                    }
+
+                Text(isTargeted
+                     ? AppText.pick("Отпустите файл", "Drop the file")
+                     : AppText.pick("Перетащите видео", "Drop a video"))
+                    .font(.system(size: 22, weight: .semibold))
+                    .padding(.top, 20)
+
+                Text(AppText.pick("или аудио, или готовые субтитры", "or audio, or existing subtitles"))
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 6)
+
+                Button(action: store.chooseFile) {
+                    HStack(spacing: 10) {
+                        Text(AppText.pick("Выбрать файл", "Choose file"))
+                        Text("⌘O")
+                            .font(.system(size: 12, weight: .medium))
+                            .opacity(0.8)
+                    }
                 }
-                .frame(width: 300, height: 252)
-                .background(cardBackground, in: RoundedRectangle(cornerRadius: 42, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 42, style: .continuous)
-                        .strokeBorder(
-                            cardBorder,
-                            style: StrokeStyle(
-                                lineWidth: isTargeted ? 1.8 : 1.15,
-                                dash: isTargeted ? [7, 5] : []
-                            )
-                        )
-                }
-                .shadow(color: Color.cyan.opacity(colorScheme == .dark ? 0.10 : 0.07), radius: 18, y: 7)
-                .scaleEffect(isTargeted ? 1.025 : 1)
-                .contentShape(RoundedRectangle(cornerRadius: 42, style: .continuous))
+                .buttonStyle(AccentButtonStyle())
+                .padding(.top, 24)
+                .opacity(isTargeted ? 0 : 1)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(AppText.pick("Выбрать видео, аудио или субтитры", "Choose video, audio, or subtitles"))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeOut(duration: 0.18), value: isTargeted)
-    }
-
-    private var cardBackground: LinearGradient {
-        LinearGradient(
-            colors: colorScheme == .dark
-                ? [Color.blue.opacity(0.20), Color.cyan.opacity(0.10), Color.blue.opacity(0.08)]
-                : [Color.white.opacity(0.78), Color.cyan.opacity(0.16), Color.blue.opacity(0.10)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var cardBorder: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color.white.opacity(isTargeted ? 0.72 : 0.46),
-                Color.cyan.opacity(isTargeted ? 0.98 : 0.82),
-                Color.blue.opacity(isTargeted ? 0.92 : 0.66),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var iconBackground: LinearGradient {
-        LinearGradient(
-            colors: isTargeted
-                ? [Color.cyan, Color.blue]
-                : [Color.cyan.opacity(colorScheme == .dark ? 0.18 : 0.14), Color.blue.opacity(colorScheme == .dark ? 0.22 : 0.12)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var buttonBackground: LinearGradient {
-        LinearGradient(
-            colors: [Color(red: 0.18, green: 0.72, blue: 1.0), Color(red: 0.05, green: 0.42, blue: 0.96)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        .padding(.top, 44)
+        .padding([.horizontal, .bottom], 20)
+        .scaleEffect(isTargeted ? 1.01 : 1)
+        .animation(.easeOut(duration: 0.2), value: isTargeted)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: store.chooseFile)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(AppText.pick("Перетащите видео, аудио или субтитры", "Drop a video, audio, or subtitles"))
     }
 }
 
@@ -349,33 +347,34 @@ private struct TranscriptionFinishedView: View {
     var body: some View {
         StateLayout {
             ZStack {
-                Circle().fill(Color.green.opacity(0.12)).frame(width: 72, height: 72)
+                Circle().fill(Theme.accent).frame(width: 76, height: 76)
+                    .shadow(color: Theme.purple.opacity(0.4), radius: 16, y: 6)
                 Image(systemName: "checkmark")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.green)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.white)
             }
 
             VStack(spacing: 6) {
                 Text(AppText.pick("Субтитры готовы", "Subtitles are ready"))
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                 Text(store.selectedFile?.lastPathComponent ?? "")
-                    .font(.system(size: 13))
+                    .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .frame(maxWidth: 420)
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 14) {
                 Label(AppText.lineCount(store.cues.count), systemImage: "captions.bubble")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-
                 if let changedCount = store.proofreadingChangedCueCount {
                     Label(AppText.correctionCount(changedCount), systemImage: "text.badge.checkmark")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
                 }
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
 
+            HStack(spacing: 8) {
                 ExportMenu(title: store.exportFormat.title) {
                     ForEach(SubtitleFormat.allCases) { format in
                         Button {
@@ -405,19 +404,20 @@ private struct TranscriptionFinishedView: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                Button(AppText.pick("Другой файл", "Another file"), action: store.reset)
-                Button(AppText.pick("Исправить субтитры", "Proofread subtitles"), action: store.improveSubtitles)
-                Button(action: store.save) {
-                    HStack(spacing: 8) {
-                        Text(AppText.pick("Сохранить…", "Save…"))
-                        ShortcutHint(keys: "⌘S", inverted: true)
-                    }
+            Button(action: store.save) {
+                HStack(spacing: 10) {
+                    Text(AppText.pick("Сохранить субтитры", "Save subtitles"))
+                    Text("⌘S").font(.system(size: 12, weight: .medium)).opacity(0.8)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut("s", modifiers: .command)
             }
-            .controlSize(.large)
+            .buttonStyle(AccentButtonStyle())
+            .keyboardShortcut("s", modifiers: .command)
+
+            HStack(spacing: 8) {
+                Button(AppText.pick("Исправить текст", "Proofread text"), action: store.improveSubtitles)
+                Button(AppText.pick("Другой файл", "Another file"), action: store.reset)
+            }
+            .buttonStyle(QuietButtonStyle())
         }
     }
 
@@ -434,13 +434,13 @@ private struct ImprovementModelSetupView: View {
             VStack(spacing: 20) {
                 Image(systemName: "text.badge.checkmark")
                     .font(.system(size: 40, weight: .light))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Theme.purple)
 
                 VStack(spacing: 6) {
                     Text(store.phase == .downloadingImprovementModel
                          ? AppText.pick("Загрузка модели правки", "Downloading proofreading model")
                          : AppText.pick("Модель для исправления", "Proofreading model"))
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 22, weight: .semibold))
 
                     Text(TextImprovementModelLocator.displayName)
                         .font(.system(size: 13, weight: .medium))
@@ -469,9 +469,7 @@ private struct ImprovementModelSetupView: View {
                         .contentTransition(.numericText())
                     }
                     Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .buttonStyle(QuietButtonStyle())
                 } else {
                     Label(byteCount(TextImprovementModelLocator.expectedDownloadBytes), systemImage: "internaldrive")
                         .font(.system(size: 12))
@@ -501,7 +499,7 @@ private struct ImprovementModelSetupView: View {
                             systemImage: "arrow.down",
                             action: store.downloadImprovementModel
                         )
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(AccentButtonStyle())
                     }
                     .controlSize(.large)
                 }
@@ -530,11 +528,7 @@ private struct ImprovingSubtitlesView: View {
                     Circle()
                         .trim(from: 0, to: max(0.02, min(1, store.progress)))
                         .stroke(
-                            LinearGradient(
-                                colors: [.blue, .cyan],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
+                            Theme.accent,
                             style: StrokeStyle(lineWidth: 7, lineCap: .round)
                         )
                         .rotationEffect(.degrees(-90))
@@ -545,7 +539,7 @@ private struct ImprovingSubtitlesView: View {
 
                 VStack(spacing: 6) {
                     Text(AppText.pick("Исправление субтитров…", "Proofreading subtitles…"))
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 22, weight: .semibold))
                     Text(TextImprovementModelLocator.displayName)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
@@ -556,9 +550,7 @@ private struct ImprovingSubtitlesView: View {
                     .clipped()
 
                 Button(AppText.pick("Отменить", "Cancel"), action: store.cancel)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(QuietButtonStyle())
             }
         }
         .onChange(of: store.improvementWord) { _, word in
@@ -624,11 +616,7 @@ private struct WordFlowView: View {
     private func animatedGradient(_ phase: TimeInterval) -> LinearGradient {
         let travel = sin(phase * 1.2) * 0.5 + 0.5
         return LinearGradient(
-            colors: [
-                Color.blue.opacity(0.95),
-                Color.cyan,
-                Color.blue.opacity(0.85)
-            ],
+            colors: [Theme.violet, Theme.purple, Theme.pink],
             startPoint: UnitPoint(x: -0.4 + travel * 0.8, y: 0.5),
             endPoint: UnitPoint(x: 0.8 + travel * 0.8, y: 0.5)
         )
@@ -663,14 +651,14 @@ private struct FailureView: View {
                 .foregroundStyle(.orange)
             VStack(spacing: 6) {
                 Text(AppText.pick("Не удалось создать субтитры", "Couldn’t create subtitles"))
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                 Text(message)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
             }
-            Button(AppText.pick("Вернуться", "Go back"), action: retry).buttonStyle(.borderedProminent)
+            Button(AppText.pick("Вернуться", "Go back"), action: retry).buttonStyle(AccentButtonStyle())
         }
     }
 }

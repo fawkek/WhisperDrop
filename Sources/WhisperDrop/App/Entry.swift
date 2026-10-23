@@ -11,6 +11,10 @@ import Foundation
 enum Entry {
     static func main() {
         let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments.first == "--snapshots", arguments.count >= 2 {
+            MainActor.assumeIsolated { Snapshots.render(to: URL(filePath: arguments[1])) }
+            exit(0)
+        }
         guard let mode = arguments.first, mode == "--transcribe" || mode == "--resegment" else {
             WhisperDropApp.main()
             return

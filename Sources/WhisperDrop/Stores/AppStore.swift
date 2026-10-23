@@ -17,6 +17,7 @@ final class AppStore {
         case needsModel
         case ready
         case downloading
+        case importingModel
         case preparing
         case selectingAudioTrack
         case transcribing
@@ -58,7 +59,7 @@ final class AppStore {
     }
 
     var isWorking: Bool {
-        [.downloading, .preparing, .selectingAudioTrack, .transcribing, .downloadingImprovementModel, .improvingSubtitles].contains(phase)
+        [.downloading, .importingModel, .preparing, .selectingAudioTrack, .transcribing, .downloadingImprovementModel, .improvingSubtitles].contains(phase)
     }
 
     func accept(providers: [NSItemProvider]) -> Bool {
@@ -256,6 +257,46 @@ final class AppStore {
             } catch is CancellationError {
                 guard operationID == id else { return }
                 phase = .needsModel
+            } catch {
+                guard operationID == id else { return }
+                modelDownloadError = error.localizedDescription
+                phase = .needsModel
+            }
+        }
+    }
+
+    /// Lets the user pick a model they already have instead of downloading it.
+    func importExistingModel() {
+        guard !isWorking else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = AppText.pick("Выбрать", "Choose")
+        panel.message = AppText.pick(
+            "Выберите папку \(ModelLocator.modelName) или папку, в которой она лежит",
+            "Choose the \(ModelLocator.modelName) folder or a folder that contains it"
+        )
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+
+        let id = UUID()
+        operationID = id
+        modelDownloadError = nil
+        progress = 0
+        phase = .importingModel
+        workTask = Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try ModelImporter.importModel(from: folder) { value in
+                        Task { @MainActor in
+                            guard self.operationID == id else { return }
+                            self.progress = value
+                        }
+                    }
+                }.value
+                guard operationID == id else { return }
+                progress = 1
+                phase = ModelLocator.isInstalled ? .ready : .needsModel
             } catch {
                 guard operationID == id else { return }
                 modelDownloadError = error.localizedDescription
