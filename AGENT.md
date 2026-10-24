@@ -46,6 +46,8 @@ The build script compiles the icon catalog with `actool`, copies `Assets.car` an
 
 The current icon (0.3.0) is an "Amethyst" tile: a violet #6D4AFF → purple #B04BFF → pink #FF5FA2 diagonal gradient, a soft white highlight from the top-left for a convex look, and five white rounded waveform bars with no underline. It is rendered by `script/make_icon.py` on Apple's macOS grid (824 px tile on a transparent 1024 px canvas) and writes `Assets/AppIcon.png`, the asset catalog sizes, and `Docs/WhisperDrop-icon.png`. Do not restore the earlier navy/cyan, dense-waveform, hearing-aid, or television concepts unless the user explicitly requests another redesign.
 
+README images are optimized separately from app assets: screenshots are 600 px-wide WebP (quality 90, preserving transparency), and `Docs/WhisperDrop-icon.png` is a 320 px PNG for the 160 px display size. Keep the full 1024 px app icon source in `Assets`; do not replace documentation previews with full-resolution captures.
+
 ## Model and privacy
 
 - Engine: open-source WhisperKit `0.18.x` through `argmaxinc/argmax-oss-swift`

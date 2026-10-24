@@ -60,12 +60,12 @@ WhisperDrop — бесплатное нативное приложение дл�
 
 <table>
   <tr>
-    <td align="center" width="50%"><img src="Docs/Screenshots/01-drop-file.png" alt="Выбор видео, аудио или файла субтитров" width="300"><br><sub>1. Выбор файла / Choose a file</sub></td>
-    <td align="center" width="50%"><img src="Docs/Screenshots/02-transcribing.png" alt="Распознавание видео с круговым индикатором прогресса" width="300"><br><sub>2. Распознавание / Transcription</sub></td>
+    <td align="center" width="50%"><img src="Docs/Screenshots/01-drop-file.webp" alt="Выбор видео, аудио или файла субтитров" width="300"><br><sub>1. Выбор файла / Choose a file</sub></td>
+    <td align="center" width="50%"><img src="Docs/Screenshots/02-transcribing.webp" alt="Распознавание видео с круговым индикатором прогресса" width="300"><br><sub>2. Распознавание / Transcription</sub></td>
   </tr>
   <tr>
-    <td align="center" width="50%"><img src="Docs/Screenshots/03-finished.png" alt="Готовые субтитры с выбором формата и кодировки" width="300"><br><sub>3. Субтитры готовы / Subtitles are ready</sub></td>
-    <td align="center" width="50%"><img src="Docs/Screenshots/04-proofreading.png" alt="Локальное исправление готовых субтитров" width="300"><br><sub>4. Исправление субтитров / Proofreading</sub></td>
+    <td align="center" width="50%"><img src="Docs/Screenshots/03-finished.webp" alt="Готовые субтитры с выбором формата и кодировки" width="300"><br><sub>3. Субтитры готовы / Subtitles are ready</sub></td>
+    <td align="center" width="50%"><img src="Docs/Screenshots/04-proofreading.webp" alt="Локальное исправление готовых субтитров" width="300"><br><sub>4. Исправление субтитров / Proofreading</sub></td>
   </tr>
 </table>
 

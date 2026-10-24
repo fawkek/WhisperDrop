@@ -127,7 +127,7 @@ def render() -> Image.Image:
 def main() -> None:
     icon = render()
     icon.save(ROOT / "Assets/AppIcon.png")
-    icon.save(ROOT / "Docs/WhisperDrop-icon.png")
+    icon.resize((320, 320), Image.LANCZOS).save(ROOT / "Docs/WhisperDrop-icon.png", optimize=True)
     catalog = ROOT / "Assets/Assets.xcassets/AppIcon.appiconset"
     for points in (16, 32, 128, 256, 512):
         for scale in (1, 2):
